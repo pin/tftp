@@ -14,8 +14,9 @@ type Sender struct {
 }
 
 func (s *Sender) Run() {
-	var buffer []byte
+	var buffer, tmp []byte
 	buffer = make([]byte, 512)
+	tmp = make([]byte, 512)
 	var blockNumber uint16
 	blockNumber = 1
 	lastBlockSize := -1
@@ -25,7 +26,7 @@ func (s *Sender) Run() {
 		if readError != nil {
 			if readError == io.EOF {
 				if lastBlockSize == 512 || lastBlockSize == -1 {
-					sendError := s.sendBlock(buffer, 0, blockNumber, false)
+					sendError := s.sendBlock(buffer, 0, blockNumber, tmp)
 					if sendError != nil {
 						fmt.Printf("error sending: %v\n", sendError)
 					}
@@ -38,7 +39,7 @@ func (s *Sender) Run() {
 			}
 			return
 		}
-		sendError := s.sendBlock(buffer, c, blockNumber, false)
+		sendError := s.sendBlock(buffer, c, blockNumber, tmp)
 		if sendError != nil {
 			fmt.Printf("error sending: %v\n", sendError)
 			return
@@ -49,7 +50,7 @@ func (s *Sender) Run() {
 	return
 }
 
-func (s *Sender) sendBlock(b []byte, c int, n uint16, last bool) (e error) {
+func (s *Sender) sendBlock(b []byte, c int, n uint16, tmp []byte) (e error) {
 	for i := 0; i < 3; i++ {
 		setDeadlineError := s.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 		if setDeadlineError != nil {
@@ -59,14 +60,14 @@ func (s *Sender) sendBlock(b []byte, c int, n uint16, last bool) (e error) {
 		s.conn.WriteToUDP(dataPacket.Pack(), s.remoteAddr)
 		for {
 //			fmt.Printf("waiting for packet\n")
-			c, _, readError := s.conn.ReadFromUDP(b)
+			c, _, readError := s.conn.ReadFromUDP(tmp)
 			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
 				fmt.Printf("timeout!\n")
 				break
 			} else if readError != nil {
 				return fmt.Errorf("error reading UDP packet: %v", readError)
 			}
-			packet, e := ParsePacket(b[:c])
+			packet, e := ParsePacket(tmp[:c])
 			if e != nil {
 				continue
 			}

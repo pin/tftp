@@ -15,21 +15,26 @@ type receiver struct {
 	Log *log.Logger
 }
 
-func (r *receiver) Run() {
+func (r *receiver) Run(isServerMode bool) (error) {
 	var blockNumber uint16
 	blockNumber = 1
 	var buffer []byte
 	buffer = make([]byte, 50000)
-	
+	firstBlock := true
 	for {
-		last, e := r.receiveBlock(buffer, blockNumber)
+		last, e := r.receiveBlock(buffer, blockNumber, firstBlock && !isServerMode)
 		if e != nil {
 			if r.Log != nil {
 				r.Log.Printf("Error receiving block %d: %v", blockNumber, e)
 			}
 			r.writer.CloseWithError(e)
-			return
+			if firstBlock {
+				return e
+			} else {
+				return nil
+			}
 		}
+		firstBlock = false
 		if last {
 			break
 		}
@@ -37,21 +42,30 @@ func (r *receiver) Run() {
 	}
 	r.writer.Close()
 	r.terminate(buffer, blockNumber, false)
-	return
+	return nil
 }
 
-func (r *receiver) receiveBlock(b []byte, n uint16) (last bool, e error) {
+func (r *receiver) receiveBlock(b []byte, n uint16, firstBlockOnClient bool) (last bool, e error) {
 	for i := 0; i < 3; i++ {
-		ackPacket := ACK{n - 1}
-		r.conn.WriteToUDP(ackPacket.Pack(), r.remoteAddr)
+		if !firstBlockOnClient {
+			ackPacket := ACK{n - 1}
+			r.conn.WriteToUDP(ackPacket.Pack(), r.remoteAddr)
+		}
 		setDeadlineError := r.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		if setDeadlineError != nil {
 			return false, fmt.Errorf("Could not set UDP timeout: %v", setDeadlineError)
 		}
 		for {
-			c, _, readError := r.conn.ReadFromUDP(b)
+			c, remoteAddr, readError := r.conn.ReadFromUDP(b)
+			if firstBlockOnClient {
+				r.remoteAddr = remoteAddr
+			}
 			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
-				break
+				if firstBlockOnClient {
+					return false, fmt.Errorf("Receive timeout")
+				} else {
+					break
+				}
 			} else if e != nil {
 				return false, fmt.Errorf("Error reading UDP packet: %v", e)
 			}

@@ -5,12 +5,14 @@ import (
 	"io"
 	"fmt"
 	"time"
+	"log"
 )
 
 type Sender struct {
 	remoteAddr *net.UDPAddr
 	conn *net.UDPConn
 	reader *io.PipeReader
+	Log *log.Logger
 }
 
 func (s *Sender) Run() {
@@ -21,19 +23,19 @@ func (s *Sender) Run() {
 	blockNumber = 1
 	lastBlockSize := -1
 	for {
-//		fmt.Printf("waiting for data\n")
 		c, readError := s.reader.Read(buffer)
 		if readError != nil {
 			if readError == io.EOF {
 				if lastBlockSize == 512 || lastBlockSize == -1 {
 					sendError := s.sendBlock(buffer, 0, blockNumber, tmp)
-					if sendError != nil {
-						fmt.Printf("error sending: %v\n", sendError)
+					if sendError != nil && s.Log != nil {
+						s.Log.Printf("Error sending last block: %v", sendError)
 					}
 				}
-				fmt.Printf("exit\n")
 			} else {
-				fmt.Printf("CLOSED WITH ERROR: %s\n", readError.Error())
+				if s.Log != nil {
+					s.Log.Printf("Handler error: %v", readError)
+				}
 				errorPacket := ERROR{1, readError.Error()}
 				s.conn.WriteToUDP(errorPacket.Pack(), s.remoteAddr)
 			}
@@ -41,7 +43,9 @@ func (s *Sender) Run() {
 		}
 		sendError := s.sendBlock(buffer, c, blockNumber, tmp)
 		if sendError != nil {
-			fmt.Printf("error sending: %v\n", sendError)
+			if s.Log != nil {
+				s.Log.Printf("Error sending block %d: %v", blockNumber, sendError)
+			}
 			return
 		}
 		blockNumber++

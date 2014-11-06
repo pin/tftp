@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"io"
 	"time"
+	"log"
 )
 
 type Receiver struct {
 	remoteAddr *net.UDPAddr
 	conn *net.UDPConn
 	writer *io.PipeWriter
+	Log *log.Logger
 }
 
 func (r *Receiver) Run() {
@@ -22,7 +24,9 @@ func (r *Receiver) Run() {
 	for {
 		last, e := r.receiveBlock(buffer, blockNumber)
 		if e != nil {
-			fmt.Printf("error receiving file: %v", e)
+			if r.Log != nil {
+				r.Log.Printf("Error receiving block %d: %v", blockNumber, e)
+			}
 			r.writer.CloseWithError(e)
 			return
 		}
@@ -33,7 +37,6 @@ func (r *Receiver) Run() {
 	}
 	r.writer.Close()
 	r.terminate(buffer, blockNumber, false)
-	fmt.Printf("done!")
 	return
 }
 
@@ -41,18 +44,16 @@ func (r *Receiver) receiveBlock(b []byte, n uint16) (last bool, e error) {
 	for i := 0; i < 3; i++ {
 		ackPacket := ACK{n - 1}
 		r.conn.WriteToUDP(ackPacket.Pack(), r.remoteAddr)
-//		fmt.Printf("ACK %d sent\n", n - 1)
 		setDeadlineError := r.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		if setDeadlineError != nil {
-			return false, fmt.Errorf("could not set UDP timeout: %v", setDeadlineError)
+			return false, fmt.Errorf("Could not set UDP timeout: %v", setDeadlineError)
 		}
 		for {
 			c, _, readError := r.conn.ReadFromUDP(b)
 			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
-				fmt.Printf("timeout!\n")
 				break
 			} else if e != nil {
-				return false, fmt.Errorf("error reading UDP packet: %v", e)
+				return false, fmt.Errorf("Error reading UDP packet: %v", e)
 			}
 			packet, e := ParsePacket(b[:c])
 			if e != nil {
@@ -67,37 +68,35 @@ func (r *Receiver) receiveBlock(b []byte, n uint16) (last bool, e error) {
 						} else {
 							errorPacket := ERROR{1, e.Error()}
 							r.conn.WriteToUDP(errorPacket.Pack(), r.remoteAddr)
-							return false, fmt.Errorf("error writing data: %v", e)
+							return false, fmt.Errorf("Handler error: %v", e)
 						}
 					}
 				case *ERROR:
-					return false, fmt.Errorf("transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
+					return false, fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
 			}
 		}
 	}
-	return false, fmt.Errorf("receive timeout")
+	return false, fmt.Errorf("Receive timeout")
 }
 
 func (r *Receiver) terminate(b []byte, n uint16, dallying bool) (e error) {
 	for i := 0; i < 3; i++ {
 		ackPacket := ACK{n}
 		_, e := r.conn.WriteToUDP(ackPacket.Pack(), r.remoteAddr)
-		fmt.Printf("last ACK %d\n", n)
 		if !dallying {
 			return e
 		}
 		setDeadlineError := r.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		if setDeadlineError != nil {
-			return fmt.Errorf("could not set UDP timeout: %v", setDeadlineError)
+			return fmt.Errorf("Could not set UDP timeout: %v", setDeadlineError)
 		}
 		l1:
 		for {
 			c, _, readError := r.conn.ReadFromUDP(b)
 			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
-				fmt.Printf("good timeout\n")
 				return nil
 			} else if e != nil {
-				return fmt.Errorf("error reading UDP packet: %v", e)
+				return fmt.Errorf("Error reading UDP packet: %v", e)
 			}
 			packet, e := ParsePacket(b[:c])
 			if e != nil {
@@ -105,14 +104,13 @@ func (r *Receiver) terminate(b []byte, n uint16, dallying bool) (e error) {
 			}
 			switch p := Packet(*packet).(type) {
 				case *DATA:
-					fmt.Printf("got DATA %d\n", p.BlockNumber)
 					if n == p.BlockNumber {
 						break l1
 					}
 				case *ERROR:
-					fmt.Errorf("transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
+					fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
 			}
 		}	
 	}
-	return fmt.Errorf("termination error")
+	return fmt.Errorf("Termination error")
 }

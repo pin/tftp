@@ -4,21 +4,28 @@ import (
 	"net"
 	"fmt"
 	"io"
+	"log"
 )
 
 type Server struct {
 	BindAddr *net.UDPAddr
 	ReadHandler func(filename string, r *io.PipeReader)
 	WriteHandler func(filename string, w *io.PipeWriter)
+	Log *log.Logger
 }
 
 func (s Server) Serve() (error) {
 	conn, e := net.ListenUDP("udp", s.BindAddr)
 	if e != nil {
-		return fmt.Errorf("Failed listen UDP %v", e)
+		return e
 	}
 	for {
-		_ = s.processRequest(conn)
+		e = s.processRequest(conn)
+		if e != nil {
+			if s.Log != nil {
+				s.Log.Printf("%v\n", e);
+			}
+		}
 	}
 }
 
@@ -36,21 +43,19 @@ func (s Server) processRequest(conn *net.UDPConn) (error) {
 		case *WRQ:
 			trasnmissionConn, e := s.transmissionConn()
 			if e != nil {
-				return fmt.Errorf("could not start transmission: %v", e)
+				return fmt.Errorf("Could not start transmission: %v", e)
 			}
 			reader, writer := io.Pipe()
-			r := &Receiver{addr, trasnmissionConn, writer}
-			fmt.Printf("write %s\n", p.Filename)
+			r := &Receiver{addr, trasnmissionConn, writer, s.Log}
 			go s.ReadHandler(p.Filename, reader)
 			go r.Run()
 		case *RRQ:
 			trasnmissionConn, e := s.transmissionConn()
 			if e != nil {
-				return fmt.Errorf("could not start transmission: %v", e)
+				return fmt.Errorf("Could not start transmission: %v", e)
 			}
 			reader, writer := io.Pipe()
-			r := &Sender{addr, trasnmissionConn, reader}
-			fmt.Printf("read %s\n", p.Filename)
+			r := &Sender{addr, trasnmissionConn, reader, s.Log}
 			go s.WriteHandler(p.Filename, writer)
 			go r.Run()
 	}

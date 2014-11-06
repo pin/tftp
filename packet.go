@@ -150,7 +150,8 @@ func (p *ERROR) Pack() ([]byte) {
 
 func ParsePacket(data []byte) (*Packet, error) {
 	var p Packet
-	switch binary.BigEndian.Uint16(data) {
+	opcode := binary.BigEndian.Uint16(data)
+	switch opcode {
 	case OP_RRQ:
 		p = &RRQ{}
 	case OP_WRQ:
@@ -162,7 +163,7 @@ func ParsePacket(data []byte) (*Packet, error) {
 	case OP_ERROR:
 		p = &ERROR{}
 	default:
-		return nil, fmt.Errorf("unknown packet type")
+		return nil, fmt.Errorf("Unknown packet type: %d", opcode)
 	}
 	pp := Packet(p)
 	return &pp, pp.Unpack(data)

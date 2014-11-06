@@ -15,9 +15,9 @@ type Packet interface {
 const (
 	OP_RRQ   = uint16(1) // Read request (RRQ)
 	OP_WRQ   = uint16(2) // Write request (WRQ)
-	OP_DATA  = uint16(3)
-	OP_ACK   = uint16(4)
-	OP_ERROR = uint16(5)
+	OP_DATA  = uint16(3) // Data
+	OP_ACK   = uint16(4) // Acknowledgement
+	OP_ERROR = uint16(5) // Error
 )
 
 type RRQ struct {

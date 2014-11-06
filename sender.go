@@ -64,12 +64,12 @@ func (s *sender) Run(isServerMode bool) {
 			if s.log != nil {
 				s.log.Printf("Error sending block %d: %v", blockNumber, sendError)
 			}
+			s.reader.CloseWithError(sendError)
 			return
 		}
 		blockNumber++
 		lastBlockSize = c
 	}
-	return
 }
 
 func (s *sender) sendRequest(tmp []byte) (e error) {

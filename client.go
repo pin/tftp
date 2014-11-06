@@ -119,8 +119,8 @@ func (c Client) Get(filename string, mode string, writer *io.PipeWriter) (error)
 		conn.WriteToUDP(rrqPacket.Pack(), c.RemoteAddr)
 		r := &receiver{c.RemoteAddr, conn, writer, c.Log}
 		e = r.Run(false)
-		if e == nil {
-			return nil
+		if e != nil {
+			break
 		}
 	}
 	return fmt.Errorf("Send timeout")

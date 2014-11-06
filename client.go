@@ -29,6 +29,8 @@ Uploading file to server example
 		_, writeError := r.WriteTo(writer)
 		if writeError != nil {
 			fmt.Fprintf(os.Stderr, "Can't put %s: %v\n", filename, writeError);
+		} else {
+			fmt.Fprintf(os.Stderr, "Put %s (%d bytes)\n", filename, n);
 		}
 		writer.Close()
 	})
@@ -50,6 +52,8 @@ Downloading file from server example
 		_, readError := w.ReadFrom(reader)
 		if readError != nil {
 			fmt.Fprintf(os.Stderr, "Can't get %s: %v\n", filename, readError);
+		} else {
+			fmt.Fprintf(os.Stderr, "Got %s (%d bytes)\n", filename, n);
 		}
 		w.Flush()
 		file.Close()

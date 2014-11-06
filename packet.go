@@ -20,6 +20,11 @@ const (
 	OP_ERROR = uint16(5) // Error
 )
 
+const (
+	BLOCK_SIZE = 512
+	MAX_DATAGRAM_SIZE = 516
+)
+
 type RRQ struct {
 	Filename string
 	Mode     string

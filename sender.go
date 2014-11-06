@@ -19,8 +19,8 @@ type sender struct {
 
 func (s *sender) Run(isServerMode bool) {
 	var buffer, tmp []byte
-	buffer = make([]byte, 512)
-	tmp = make([]byte, 512)
+	buffer = make([]byte, BLOCK_SIZE)
+	tmp = make([]byte, MAX_DATAGRAM_SIZE)
 	if !isServerMode {
 		e := s.sendRequest(tmp)
 		if e != nil {
@@ -35,8 +35,12 @@ func (s *sender) Run(isServerMode bool) {
 	for {
 		c, readError := s.reader.Read(buffer)
 		if readError != nil {
-			if readError == io.EOF {
-				if lastBlockSize == 512 || lastBlockSize == -1 {
+			if readError == io.EOF { // && c == 0 ?
+				// we could have c != 0 here
+				if c != 0 {
+					panic("error!")
+				}
+				if lastBlockSize == BLOCK_SIZE || lastBlockSize == -1 {
 					sendError := s.sendBlock(buffer, 0, blockNumber, tmp)
 					if sendError != nil && s.log != nil {
 						s.log.Printf("Error sending last block: %v", sendError)

@@ -21,7 +21,7 @@ func (r *receiver) Run(isServerMode bool) (error) {
 	var blockNumber uint16
 	blockNumber = 1
 	var buffer []byte
-	buffer = make([]byte, 50000)
+	buffer = make([]byte, MAX_DATAGRAM_SIZE)
 	firstBlock := true
 	for {
 		last, e := r.receiveBlock(buffer, blockNumber, firstBlock && !isServerMode)
@@ -78,7 +78,7 @@ func (r *receiver) receiveBlock(b []byte, n uint16, firstBlockOnClient bool) (la
 						}
 						_, e := r.writer.Write(p.Data)
 						if e == nil {
-							return len(p.Data) < 512, nil
+							return len(p.Data) < BLOCK_SIZE, nil
 						} else {
 							errorPacket := ERROR{1, e.Error()}
 							r.conn.WriteToUDP(errorPacket.Pack(), r.remoteAddr)

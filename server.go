@@ -63,7 +63,7 @@ func (s Server) Serve() (error) {
 
 func (s Server) processRequest(conn *net.UDPConn) (error) {
 	var buffer []byte
-	buffer = make([]byte, 50)
+	buffer = make([]byte, MAX_DATAGRAM_SIZE)
 	n, remoteAddr, e := conn.ReadFromUDP(buffer)
 	if e != nil {
 		return fmt.Errorf("Failed to read data from client: %v", e)

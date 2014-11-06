@@ -54,7 +54,6 @@ Downloading file from server example
 	w.Flush()
 	file.Close()
 */
-
 type Client struct {
 	RemoteAddr *net.UDPAddr
 	Log *log.Logger

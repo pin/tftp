@@ -8,11 +8,59 @@ import (
 	"time"
 )
 
+/*
+Client provides TFTP client functionality. It requires remote address and
+optional logger
+
+Uploading file to server example
+
+	addr, e := net.ResolveUDPAddr("udp", "example.org:69")
+	if e != nil {
+		...
+	}
+	file, e := os.Open("/etc/passwd")
+	if e != nil {
+		...
+	}
+	r := bufio.NewReader(file)
+	log := log.New(os.Stderr, "", log.Ldate | log.Ltime)
+	c := tftp.Client{addr, log}
+	reader, writer := io.Pipe()
+	go func() {
+		r.WriteTo(writer);
+		writer.Close()
+	}()
+	c.Put(filename, mode, reader)
+	if e != nil {
+		...
+	}
+	
+Downloading file from server example
+
+	addr, e := net.ResolveUDPAddr("udp", "example.org:69")
+	if e != nil {
+		...
+	}
+	file, e := os.Create("/var/tmp/debian.img")
+	if e != nil {
+		...
+	}
+	w := bufio.NewWriter(file)
+	log := log.New(os.Stderr, "", log.Ldate | log.Ltime)
+	c := tftp.Client{addr, log}
+	reader, writer := io.Pipe()
+	go c.Get(filename, mode, writer)
+	w.ReadFrom(reader)
+	w.Flush()
+	file.Close()
+*/
+
 type Client struct {
 	RemoteAddr *net.UDPAddr
 	Log *log.Logger
 }
 
+// Method for uploading file to server
 func (c Client) Put(filename string, mode string, reader *io.PipeReader) (error) {
 	addr, e := net.ResolveUDPAddr("udp", ":0")
 	if e != nil {
@@ -57,6 +105,7 @@ func (c Client) Put(filename string, mode string, reader *io.PipeReader) (error)
 	return nil
 }
 
+// Method for downloading file from server
 func (c Client) Get(filename string, mode string, writer *io.PipeWriter) (error) {
 	addr, e := net.ResolveUDPAddr("udp", ":0")
 	if e != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync"
 )
 
 /*
@@ -64,7 +65,7 @@ func (s Server) Serve() (error) {
 func (s Server) processRequest(conn *net.UDPConn) (error) {
 	var buffer []byte
 	buffer = make([]byte, 50)
-	n, addr, e := conn.ReadFromUDP(buffer)
+	n, remoteAddr, e := conn.ReadFromUDP(buffer)
 	if e != nil {
 		return fmt.Errorf("Failed to read data from client: %v", e)
 	}
@@ -74,25 +75,55 @@ func (s Server) processRequest(conn *net.UDPConn) (error) {
 	}
 	switch p := Packet(*p).(type) {
 		case *WRQ:
-			s.Log.Printf("Write request received: %s\n", p.Filename)
+			s.Log.Printf("got WRQ (filename=%s, mode=%s)", p.Filename, p.Mode)
 			trasnmissionConn, e := s.transmissionConn()
 			if e != nil {
 				return fmt.Errorf("Could not start transmission: %v", e)
 			}
 			reader, writer := io.Pipe()
-			r := &receiver{addr, trasnmissionConn, writer, s.Log}
-			go s.ReadHandler(p.Filename, reader)
-			go r.Run(true)
+			r := &receiver{remoteAddr, trasnmissionConn, writer, p.Filename, p.Mode, s.Log}
+			var wg sync.WaitGroup
+			wg.Add(1)
+			go func() {
+				s.ReadHandler(p.Filename, reader)
+				wg.Done()
+			}()
+			// Writing zero bytes to the pipe just to check for any handler errors early
+			var null_buffer []byte
+			null_buffer = make([]byte, 0)
+			_, e = writer.Write(null_buffer)
+			if e != nil {
+				errorPacket := ERROR{1, e.Error()}
+				trasnmissionConn.WriteToUDP(errorPacket.Pack(), remoteAddr)
+				s.Log.Printf("sent ERROR (code=%d): %s", 1, e.Error())
+				return e
+			}
+			wg.Add(1)
+			go func() {
+				r.Run(true)
+				wg.Done()
+			}()
+			wg.Wait()
 		case *RRQ:
-			s.Log.Printf("Read request received: %s\n", p.Filename)
+			s.Log.Printf("got RRQ (filename=%s, mode=%s)", p.Filename, p.Mode)
 			trasnmissionConn, e := s.transmissionConn()
 			if e != nil {
 				return fmt.Errorf("Could not start transmission: %v", e)
 			}
 			reader, writer := io.Pipe()
-			r := &sender{addr, trasnmissionConn, reader, s.Log}
-			go s.WriteHandler(p.Filename, writer)
-			go r.Run()
+			r := &sender{remoteAddr, trasnmissionConn, reader, p.Filename, p.Mode, s.Log}
+			var wg sync.WaitGroup
+			wg.Add(1)
+			go func() {
+				s.WriteHandler(p.Filename, writer)
+				wg.Done()
+			}()
+			wg.Add(1)
+			go func() {
+				r.Run(true)
+				wg.Done()
+			}()
+			wg.Wait()
 	}
 	return nil
 }

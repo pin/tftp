@@ -41,6 +41,9 @@ func (s *sender) Run() {
 			}
 			return
 		}
+		if c == 0 {
+			continue;
+		}
 		sendError := s.sendBlock(buffer, c, blockNumber, tmp)
 		if sendError != nil {
 			if s.Log != nil {

@@ -5,7 +5,7 @@ import (
 	"io"
 	"log"
 	"fmt"
-	"time"
+	"sync"
 )
 
 /*
@@ -25,15 +25,13 @@ Uploading file to server example
 	r := bufio.NewReader(file)
 	log := log.New(os.Stderr, "", log.Ldate | log.Ltime)
 	c := tftp.Client{addr, log}
-	reader, writer := io.Pipe()
-	go func() {
-		r.WriteTo(writer);
+	c.Put(filename, mode, func(writer *io.PipeWriter) {
+		_, writeError := r.WriteTo(writer)
+		if writeError != nil {
+			fmt.Fprintf(os.Stderr, "Can't put %s: %v\n", filename, writeError);
+		}
 		writer.Close()
-	}()
-	c.Put(filename, mode, reader)
-	if e != nil {
-		...
-	}
+	})
 	
 Downloading file from server example
 
@@ -48,11 +46,14 @@ Downloading file from server example
 	w := bufio.NewWriter(file)
 	log := log.New(os.Stderr, "", log.Ldate | log.Ltime)
 	c := tftp.Client{addr, log}
-	reader, writer := io.Pipe()
-	go c.Get(filename, mode, writer)
-	w.ReadFrom(reader)
-	w.Flush()
-	file.Close()
+	c.Get(filename, mode, func(reader *io.PipeReader) {
+		_, readError := w.ReadFrom(reader)
+		if readError != nil {
+			fmt.Fprintf(os.Stderr, "Can't get %s: %v\n", filename, readError);
+		}
+		w.Flush()
+		file.Close()
+	})
 */
 type Client struct {
 	RemoteAddr *net.UDPAddr
@@ -60,7 +61,7 @@ type Client struct {
 }
 
 // Method for uploading file to server
-func (c Client) Put(filename string, mode string, reader *io.PipeReader) (error) {
+func (c Client) Put(filename string, mode string, handler func(w *io.PipeWriter)) (error) {
 	addr, e := net.ResolveUDPAddr("udp", ":0")
 	if e != nil {
 		return e
@@ -69,43 +70,21 @@ func (c Client) Put(filename string, mode string, reader *io.PipeReader) (error)
 	if e != nil {
 		return e
 	}
-	var buffer []byte
-	buffer = make([]byte, 50)
-	for i := 0; i < 3; i++ {
-		wrqPacket := WRQ{filename, mode}
-		conn.WriteToUDP(wrqPacket.Pack(), c.RemoteAddr)
-		setDeadlineError := conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-		if setDeadlineError != nil {
-			return fmt.Errorf("Could not set UDP timeout: %v", setDeadlineError)
-		}
-		for {
-			n, remoteAddr, readError := conn.ReadFromUDP(buffer)
-			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
-				break
-			} else if readError != nil {
-				return fmt.Errorf("Error reading UDP packet: %v", readError)
-			}
-			p, e := ParsePacket(buffer[:n])
-			if e != nil {
-				continue
-			}
-			switch p := Packet(*p).(type) {
-				case *ACK:
-					if p.BlockNumber == 0 {
-						s := &sender{remoteAddr, conn, reader, c.Log}
-						s.Run()
-						return nil
-					}
-				case *ERROR:
-					return fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
-			}
-		}
-	}
+	reader, writer := io.Pipe()
+	s := &sender{c.RemoteAddr, conn, reader, filename, mode, c.Log}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		handler(writer)
+		wg.Done()
+	}()
+	s.Run(false)
+	wg.Wait()
 	return nil
 }
 
 // Method for downloading file from server
-func (c Client) Get(filename string, mode string, writer *io.PipeWriter) (error) {
+func (c Client) Get(filename string, mode string, handler func(r *io.PipeReader)) (error) {
 	addr, e := net.ResolveUDPAddr("udp", ":0")
 	if e != nil {
 		return e
@@ -114,14 +93,15 @@ func (c Client) Get(filename string, mode string, writer *io.PipeWriter) (error)
 	if e != nil {
 		return e
 	}
-	for i := 0; i < 3; i++ {
-		rrqPacket := RRQ{filename, mode}
-		conn.WriteToUDP(rrqPacket.Pack(), c.RemoteAddr)
-		r := &receiver{c.RemoteAddr, conn, writer, c.Log}
-		e = r.Run(false)
-		if e != nil {
-			break
-		}
-	}
+	reader, writer := io.Pipe()
+	r := &receiver{c.RemoteAddr, conn, writer, filename, mode, c.Log}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		handler(reader)
+		wg.Done()
+	}()
+	r.Run(false)
+	wg.Wait()
 	return fmt.Errorf("Send timeout")
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"sync"
 )
 
 /*
@@ -82,12 +81,7 @@ func (s Server) processRequest(conn *net.UDPConn) (error) {
 			}
 			reader, writer := io.Pipe()
 			r := &receiver{remoteAddr, trasnmissionConn, writer, p.Filename, p.Mode, s.Log}
-			var wg sync.WaitGroup
-			wg.Add(1)
-			go func() {
-				s.ReadHandler(p.Filename, reader)
-				wg.Done()
-			}()
+			go s.ReadHandler(p.Filename, reader)
 			// Writing zero bytes to the pipe just to check for any handler errors early
 			var null_buffer []byte
 			null_buffer = make([]byte, 0)
@@ -98,12 +92,7 @@ func (s Server) processRequest(conn *net.UDPConn) (error) {
 				s.Log.Printf("sent ERROR (code=%d): %s", 1, e.Error())
 				return e
 			}
-			wg.Add(1)
-			go func() {
-				r.Run(true)
-				wg.Done()
-			}()
-			wg.Wait()
+			go r.Run(true)
 		case *RRQ:
 			s.Log.Printf("got RRQ (filename=%s, mode=%s)", p.Filename, p.Mode)
 			trasnmissionConn, e := s.transmissionConn()
@@ -112,18 +101,8 @@ func (s Server) processRequest(conn *net.UDPConn) (error) {
 			}
 			reader, writer := io.Pipe()
 			r := &sender{remoteAddr, trasnmissionConn, reader, p.Filename, p.Mode, s.Log}
-			var wg sync.WaitGroup
-			wg.Add(1)
-			go func() {
-				s.WriteHandler(p.Filename, writer)
-				wg.Done()
-			}()
-			wg.Add(1)
-			go func() {
-				r.Run(true)
-				wg.Done()
-			}()
-			wg.Wait()
+			go s.WriteHandler(p.Filename, writer)
+			go r.Run(true)
 	}
 	return nil
 }

@@ -13,13 +13,23 @@ for read and write requests and optional logger.
 
 	func HandleWrite(filename string, r *io.PipeReader) {
 		buffer := &bytes.Buffer{}
-		buffer.ReadFrom(r)
-		...
+		c, e := buffer.ReadFrom(r)
+		if e != nil {
+			fmt.Fprintf(os.Stderr, "Can't receive %s: %v\n", filename, e)
+		} else {
+			fmt.Fprintf(os.Stderr, "Received %s (%d bytes)\n", filename, c)
+			...
+		}
 	}
 	func HandleRead(filename string, w *io.PipeWriter) {
 		if fileExists {
 			...
-			buffer.WriteTo(w)
+			c, e := buffer.WriteTo(w)
+			if e != nil {
+				fmt.Fprintf(os.Stderr, "Can't send %s: %v\n", filename, e)
+			} else {
+				fmt.Fprintf(os.Stderr, "Sent %s (%d bytes)\n", filename, c)
+			}
 			w.Close()
 		} else {
 			w.CloseWithError(fmt.Errorf("File not exists: %s", filename))

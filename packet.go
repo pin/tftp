@@ -34,7 +34,7 @@ func (p *RRQ) Unpack(data []byte) (e error) {
 }
 
 func (p *RRQ) Pack() ([]byte) {
-	return packRQ(p.Filename, p.Mode)
+	return packRQ(p.Filename, p.Mode, OP_RRQ)
 }
 
 type WRQ struct {
@@ -51,7 +51,7 @@ func (p *WRQ) Unpack(data []byte) (e error) {
 }
 
 func (p *WRQ) Pack() ([]byte) {
-	return packRQ(p.Filename, p.Mode)
+	return packRQ(p.Filename, p.Mode, OP_WRQ)
 }
 
 func unpackRQ(data []byte) (filename string, mode string, e error) {
@@ -69,9 +69,9 @@ func unpackRQ(data []byte) (filename string, mode string, e error) {
 	return filename, mode, nil
 }
 
-func packRQ(filename string, mode string) ([]byte) {
+func packRQ(filename string, mode string, opcode uint16) ([]byte) {
 	buffer := &bytes.Buffer{}
-	binary.Write(buffer, binary.BigEndian, OP_RRQ)
+	binary.Write(buffer, binary.BigEndian, opcode)
 	buffer.WriteString(filename)
 	buffer.WriteByte(0x0)
 	buffer.WriteString(mode)

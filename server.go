@@ -8,8 +8,8 @@ import (
 )
 
 /*
-Server provides TFTP server functionality. It requires handlers bind address,
-handlers for read and write requests and optional logger.
+Server provides TFTP server functionality. It requires bind address, handlers
+for read and write requests and optional logger.
 
 	func HandleWrite(filename string, r *io.PipeReader) {
 		buffer := &bytes.Buffer{}
@@ -64,15 +64,17 @@ func (s Server) Serve() (error) {
 func (s Server) processRequest(conn *net.UDPConn) (error) {
 	var buffer []byte
 	buffer = make([]byte, 50)
-	
-	written, addr, e := conn.ReadFromUDP(buffer)
+	n, addr, e := conn.ReadFromUDP(buffer)
 	if e != nil {
 		return fmt.Errorf("Failed to read data from client: %v", e)
 	}
-	p, e := ParsePacket(buffer[:written])
-	
+	p, e := ParsePacket(buffer[:n])
+	if e != nil {
+		return nil
+	}
 	switch p := Packet(*p).(type) {
 		case *WRQ:
+			s.Log.Printf("Write request received: %s\n", p.Filename)
 			trasnmissionConn, e := s.transmissionConn()
 			if e != nil {
 				return fmt.Errorf("Could not start transmission: %v", e)
@@ -80,8 +82,9 @@ func (s Server) processRequest(conn *net.UDPConn) (error) {
 			reader, writer := io.Pipe()
 			r := &receiver{addr, trasnmissionConn, writer, s.Log}
 			go s.ReadHandler(p.Filename, reader)
-			go r.Run()
+			go r.Run(true)
 		case *RRQ:
+			s.Log.Printf("Read request received: %s\n", p.Filename)
 			trasnmissionConn, e := s.transmissionConn()
 			if e != nil {
 				return fmt.Errorf("Could not start transmission: %v", e)

@@ -8,14 +8,14 @@ import (
 	"log"
 )
 
-type Receiver struct {
+type receiver struct {
 	remoteAddr *net.UDPAddr
 	conn *net.UDPConn
 	writer *io.PipeWriter
 	Log *log.Logger
 }
 
-func (r *Receiver) Run() {
+func (r *receiver) Run() {
 	var blockNumber uint16
 	blockNumber = 1
 	var buffer []byte
@@ -40,7 +40,7 @@ func (r *Receiver) Run() {
 	return
 }
 
-func (r *Receiver) receiveBlock(b []byte, n uint16) (last bool, e error) {
+func (r *receiver) receiveBlock(b []byte, n uint16) (last bool, e error) {
 	for i := 0; i < 3; i++ {
 		ackPacket := ACK{n - 1}
 		r.conn.WriteToUDP(ackPacket.Pack(), r.remoteAddr)
@@ -79,7 +79,7 @@ func (r *Receiver) receiveBlock(b []byte, n uint16) (last bool, e error) {
 	return false, fmt.Errorf("Receive timeout")
 }
 
-func (r *Receiver) terminate(b []byte, n uint16, dallying bool) (e error) {
+func (r *receiver) terminate(b []byte, n uint16, dallying bool) (e error) {
 	for i := 0; i < 3; i++ {
 		ackPacket := ACK{n}
 		_, e := r.conn.WriteToUDP(ackPacket.Pack(), r.remoteAddr)

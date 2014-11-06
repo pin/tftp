@@ -46,7 +46,7 @@ func (s Server) processRequest(conn *net.UDPConn) (error) {
 				return fmt.Errorf("Could not start transmission: %v", e)
 			}
 			reader, writer := io.Pipe()
-			r := &Receiver{addr, trasnmissionConn, writer, s.Log}
+			r := &receiver{addr, trasnmissionConn, writer, s.Log}
 			go s.ReadHandler(p.Filename, reader)
 			go r.Run()
 		case *RRQ:
@@ -55,7 +55,7 @@ func (s Server) processRequest(conn *net.UDPConn) (error) {
 				return fmt.Errorf("Could not start transmission: %v", e)
 			}
 			reader, writer := io.Pipe()
-			r := &Sender{addr, trasnmissionConn, reader, s.Log}
+			r := &sender{addr, trasnmissionConn, reader, s.Log}
 			go s.WriteHandler(p.Filename, writer)
 			go r.Run()
 	}

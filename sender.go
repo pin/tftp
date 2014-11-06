@@ -8,14 +8,14 @@ import (
 	"log"
 )
 
-type Sender struct {
+type sender struct {
 	remoteAddr *net.UDPAddr
 	conn *net.UDPConn
 	reader *io.PipeReader
 	Log *log.Logger
 }
 
-func (s *Sender) Run() {
+func (s *sender) Run() {
 	var buffer, tmp []byte
 	buffer = make([]byte, 512)
 	tmp = make([]byte, 512)
@@ -54,7 +54,7 @@ func (s *Sender) Run() {
 	return
 }
 
-func (s *Sender) sendBlock(b []byte, c int, n uint16, tmp []byte) (e error) {
+func (s *sender) sendBlock(b []byte, c int, n uint16, tmp []byte) (e error) {
 	for i := 0; i < 3; i++ {
 		setDeadlineError := s.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 		if setDeadlineError != nil {

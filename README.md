@@ -1,7 +1,5 @@
-tftp
-====
-
 TFTP server and client library for Golang
+=========================================
 
 	import "github.com/pin/tftp"
 

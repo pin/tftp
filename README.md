@@ -3,8 +3,8 @@ TFTP server and client library for Golang
 
 	import "github.com/pin/tftp"
 
-Server provides TFTP server functionality
------------------------------------------
+TFTP Server
+-----------
 It requires bind address, handlers for read and write requests and optional logger.
 
 	func HandleWrite(filename string, r *io.PipeReader) {
@@ -45,8 +45,8 @@ It requires bind address, handlers for read and write requests and optional logg
 		os.Exit(1)
 	}
 
-Client provides TFTP client functionality
------------------------------------------
+TFTP Client
+-----------
 It requires remote address and optional logger.
 
 Uploading file to server example

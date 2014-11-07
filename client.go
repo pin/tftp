@@ -26,7 +26,7 @@ Uploading file to server example
 	log := log.New(os.Stderr, "", log.Ldate | log.Ltime)
 	c := tftp.Client{addr, log}
 	c.Put(filename, mode, func(writer *io.PipeWriter) {
-		_, writeError := r.WriteTo(writer)
+		n, writeError := r.WriteTo(writer)
 		if writeError != nil {
 			fmt.Fprintf(os.Stderr, "Can't put %s: %v\n", filename, writeError);
 		} else {
@@ -49,7 +49,7 @@ Downloading file from server example
 	log := log.New(os.Stderr, "", log.Ldate | log.Ltime)
 	c := tftp.Client{addr, log}
 	c.Get(filename, mode, func(reader *io.PipeReader) {
-		_, readError := w.ReadFrom(reader)
+		n, readError := w.ReadFrom(reader)
 		if readError != nil {
 			fmt.Fprintf(os.Stderr, "Can't get %s: %v\n", filename, readError);
 		} else {

@@ -1,23 +1,23 @@
 package tftp
 
 import (
-	"net"
 	"fmt"
 	"io"
-	"time"
 	"log"
+	"net"
+	"time"
 )
 
 type receiver struct {
 	remoteAddr *net.UDPAddr
-	conn *net.UDPConn
-	writer *io.PipeWriter
-	filename string
-	mode string
-	log *log.Logger
+	conn       *net.UDPConn
+	writer     *io.PipeWriter
+	filename   string
+	mode       string
+	log        *log.Logger
 }
 
-func (r *receiver) Run(isServerMode bool) (error) {
+func (r *receiver) Run(isServerMode bool) error {
 	var blockNumber uint16
 	blockNumber = 1
 	var buffer []byte
@@ -52,7 +52,7 @@ func (r *receiver) receiveBlock(b []byte, n uint16, firstBlockOnClient bool) (la
 		} else {
 			ackPacket := ACK{n - 1}
 			r.conn.WriteToUDP(ackPacket.Pack(), r.remoteAddr)
-			r.log.Printf("sent ACK #%d", n - 1)
+			r.log.Printf("sent ACK #%d", n-1)
 		}
 		setDeadlineError := r.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		if setDeadlineError != nil {
@@ -70,23 +70,23 @@ func (r *receiver) receiveBlock(b []byte, n uint16, firstBlockOnClient bool) (la
 				continue
 			}
 			switch p := Packet(*packet).(type) {
-				case *DATA:
-					r.log.Printf("got DATA #%d (%d bytes)", p.BlockNumber, len(p.Data));
-					if n == p.BlockNumber {
-						if firstBlockOnClient {
-							r.remoteAddr = remoteAddr
-						}
-						_, e := r.writer.Write(p.Data)
-						if e == nil {
-							return len(p.Data) < BLOCK_SIZE, nil
-						} else {
-							errorPacket := ERROR{1, e.Error()}
-							r.conn.WriteToUDP(errorPacket.Pack(), r.remoteAddr)
-							return false, fmt.Errorf("Handler error: %v", e)
-						}
+			case *DATA:
+				r.log.Printf("got DATA #%d (%d bytes)", p.BlockNumber, len(p.Data))
+				if n == p.BlockNumber {
+					if firstBlockOnClient {
+						r.remoteAddr = remoteAddr
 					}
-				case *ERROR:
-					return false, fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
+					_, e := r.writer.Write(p.Data)
+					if e == nil {
+						return len(p.Data) < BLOCK_SIZE, nil
+					} else {
+						errorPacket := ERROR{1, e.Error()}
+						r.conn.WriteToUDP(errorPacket.Pack(), r.remoteAddr)
+						return false, fmt.Errorf("Handler error: %v", e)
+					}
+				}
+			case *ERROR:
+				return false, fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
 			}
 		}
 	}
@@ -105,7 +105,7 @@ func (r *receiver) terminate(b []byte, n uint16, dallying bool) (e error) {
 		if setDeadlineError != nil {
 			return fmt.Errorf("Could not set UDP timeout: %v", setDeadlineError)
 		}
-		l1:
+	l1:
 		for {
 			c, _, readError := r.conn.ReadFromUDP(b)
 			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
@@ -118,15 +118,15 @@ func (r *receiver) terminate(b []byte, n uint16, dallying bool) (e error) {
 				continue
 			}
 			switch p := Packet(*packet).(type) {
-				case *DATA:
-					r.log.Printf("got DATA #%d (%d bytes)", p.BlockNumber, len(p.Data));
-					if n == p.BlockNumber {
-						break l1
-					}
-				case *ERROR:
-					fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
+			case *DATA:
+				r.log.Printf("got DATA #%d (%d bytes)", p.BlockNumber, len(p.Data))
+				if n == p.BlockNumber {
+					break l1
+				}
+			case *ERROR:
+				fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
 			}
-		}	
+		}
 	}
 	return fmt.Errorf("Termination error")
 }

@@ -1,20 +1,20 @@
 package tftp
 
 import (
-	"net"
-	"io"
 	"fmt"
-	"time"
+	"io"
 	"log"
+	"net"
+	"time"
 )
 
 type sender struct {
 	remoteAddr *net.UDPAddr
-	conn *net.UDPConn
-	reader *io.PipeReader
-	filename string
-	mode string
-	log *log.Logger
+	conn       *net.UDPConn
+	reader     *io.PipeReader
+	filename   string
+	mode       string
+	log        *log.Logger
 }
 
 func (s *sender) Run(isServerMode bool) {
@@ -57,7 +57,7 @@ func (s *sender) Run(isServerMode bool) {
 			return
 		}
 		if c == 0 {
-			continue;
+			continue
 		}
 		sendError := s.sendBlock(buffer, c, blockNumber, tmp)
 		if sendError != nil {
@@ -93,16 +93,16 @@ func (s *sender) sendRequest(tmp []byte) (e error) {
 				continue
 			}
 			switch p := Packet(*packet).(type) {
-				case *ACK:
-					if p.BlockNumber == 0 {
-						s.log.Printf("got ACK #0");
-						s.remoteAddr = remoteAddr
-						return nil
-					}
-				case *ERROR:
-					return fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
+			case *ACK:
+				if p.BlockNumber == 0 {
+					s.log.Printf("got ACK #0")
+					s.remoteAddr = remoteAddr
+					return nil
+				}
+			case *ERROR:
+				return fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
 			}
-		}	
+		}
 	}
 	return fmt.Errorf("Send timeout")
 }
@@ -128,15 +128,15 @@ func (s *sender) sendBlock(b []byte, c int, n uint16, tmp []byte) (e error) {
 				continue
 			}
 			switch p := Packet(*packet).(type) {
-				case *ACK:
-					s.log.Printf("got ACK #%d", p.BlockNumber)
-					if n == p.BlockNumber {
-						return nil
-					}
-				case *ERROR:
-					return fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
+			case *ACK:
+				s.log.Printf("got ACK #%d", p.BlockNumber)
+				if n == p.BlockNumber {
+					return nil
+				}
+			case *ERROR:
+				return fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
 			}
-		}	
+		}
 	}
 	return fmt.Errorf("Send timeout")
 }

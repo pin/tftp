@@ -65,7 +65,7 @@ func unpackRQ(data []byte) (filename string, mode string, e error) {
 	if e != nil {
 		return s, "", e
 	}
-	filename = strings.TrimSpace(s)
+	filename = strings.TrimSpace(strings.Trim(s, "\x00"))
 	s, e = buffer.ReadString(0x0)
 	if e != nil {
 		return filename, s, e

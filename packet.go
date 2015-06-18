@@ -1,15 +1,15 @@
 package tftp
 
 import (
-	"encoding/binary"
 	"bytes"
-	"strings"
+	"encoding/binary"
 	"fmt"
+	"strings"
 )
 
 type Packet interface {
-	Unpack(data []byte) (error)
-	Pack() ([]byte)
+	Unpack(data []byte) error
+	Pack() []byte
 }
 
 const (
@@ -21,7 +21,7 @@ const (
 )
 
 const (
-	BLOCK_SIZE = 512
+	BLOCK_SIZE        = 512
 	MAX_DATAGRAM_SIZE = 516
 )
 
@@ -32,13 +32,13 @@ type RRQ struct {
 
 func (p *RRQ) Unpack(data []byte) (e error) {
 	p.Filename, p.Mode, e = unpackRQ(data)
-	if (e != nil) {
+	if e != nil {
 		return e
 	}
 	return nil
 }
 
-func (p *RRQ) Pack() ([]byte) {
+func (p *RRQ) Pack() []byte {
 	return packRQ(p.Filename, p.Mode, OP_RRQ)
 }
 
@@ -49,13 +49,13 @@ type WRQ struct {
 
 func (p *WRQ) Unpack(data []byte) (e error) {
 	p.Filename, p.Mode, e = unpackRQ(data)
-	if (e != nil) {
+	if e != nil {
 		return e
 	}
 	return nil
 }
 
-func (p *WRQ) Pack() ([]byte) {
+func (p *WRQ) Pack() []byte {
 	return packRQ(p.Filename, p.Mode, OP_WRQ)
 }
 
@@ -65,7 +65,7 @@ func unpackRQ(data []byte) (filename string, mode string, e error) {
 	if e != nil {
 		return s, "", e
 	}
-	filename = strings.TrimSpace(s)
+	filename = strings.TrimSpace(strings.Trim(s, "\x00"))
 	s, e = buffer.ReadString(0x0)
 	if e != nil {
 		return filename, s, e
@@ -74,7 +74,7 @@ func unpackRQ(data []byte) (filename string, mode string, e error) {
 	return filename, mode, nil
 }
 
-func packRQ(filename string, mode string, opcode uint16) ([]byte) {
+func packRQ(filename string, mode string, opcode uint16) []byte {
 	buffer := &bytes.Buffer{}
 	binary.Write(buffer, binary.BigEndian, opcode)
 	buffer.WriteString(filename)
@@ -86,7 +86,7 @@ func packRQ(filename string, mode string, opcode uint16) ([]byte) {
 
 type DATA struct {
 	BlockNumber uint16
-	Data []byte
+	Data        []byte
 }
 
 func (p *DATA) Unpack(data []byte) (e error) {
@@ -98,7 +98,7 @@ func (p *DATA) Unpack(data []byte) (e error) {
 	return nil
 }
 
-func (p *DATA) Pack() ([]byte) {
+func (p *DATA) Pack() []byte {
 	buffer := &bytes.Buffer{}
 	binary.Write(buffer, binary.BigEndian, OP_DATA)
 	binary.Write(buffer, binary.BigEndian, p.BlockNumber)
@@ -118,7 +118,7 @@ func (p *ACK) Unpack(data []byte) (e error) {
 	return nil
 }
 
-func (p *ACK) Pack() ([]byte) {
+func (p *ACK) Pack() []byte {
 	buffer := &bytes.Buffer{}
 	binary.Write(buffer, binary.BigEndian, OP_ACK)
 	binary.Write(buffer, binary.BigEndian, p.BlockNumber)
@@ -126,7 +126,7 @@ func (p *ACK) Pack() ([]byte) {
 }
 
 type ERROR struct {
-	ErrorCode uint16
+	ErrorCode    uint16
 	ErrorMessage string
 }
 
@@ -144,7 +144,7 @@ func (p *ERROR) Unpack(data []byte) (e error) {
 	return nil
 }
 
-func (p *ERROR) Pack() ([]byte) {
+func (p *ERROR) Pack() []byte {
 	buffer := &bytes.Buffer{}
 	binary.Write(buffer, binary.BigEndian, OP_ERROR)
 	binary.Write(buffer, binary.BigEndian, p.ErrorCode)
@@ -160,7 +160,7 @@ func ParsePacket(data []byte) (*Packet, error) {
 	case OP_RRQ:
 		p = &RRQ{}
 	case OP_WRQ:
-		p = &WRQ{}	
+		p = &WRQ{}
 	case OP_DATA:
 		p = &DATA{}
 	case OP_ACK:

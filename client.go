@@ -1,10 +1,10 @@
 package tftp
 
 import (
-	"net"
+	"fmt"
 	"io"
 	"log"
-	"fmt"
+	"net"
 	"sync"
 )
 
@@ -34,7 +34,7 @@ Uploading file to server example
 		}
 		writer.Close()
 	})
-	
+
 Downloading file from server example
 
 	addr, e := net.ResolveUDPAddr("udp", "example.org:69")
@@ -61,11 +61,11 @@ Downloading file from server example
 */
 type Client struct {
 	RemoteAddr *net.UDPAddr
-	Log *log.Logger
+	Log        *log.Logger
 }
 
 // Method for uploading file to server
-func (c Client) Put(filename string, mode string, handler func(w *io.PipeWriter)) (error) {
+func (c Client) Put(filename string, mode string, handler func(w *io.PipeWriter)) error {
 	addr, e := net.ResolveUDPAddr("udp", ":0")
 	if e != nil {
 		return e
@@ -88,7 +88,7 @@ func (c Client) Put(filename string, mode string, handler func(w *io.PipeWriter)
 }
 
 // Method for downloading file from server
-func (c Client) Get(filename string, mode string, handler func(r *io.PipeReader)) (error) {
+func (c Client) Get(filename string, mode string, handler func(r *io.PipeReader)) error {
 	addr, e := net.ResolveUDPAddr("udp", ":0")
 	if e != nil {
 		return e

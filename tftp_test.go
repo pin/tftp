@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"testing"
@@ -28,11 +29,6 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestPutGet(t *testing.T) {
-	testPutGet(t, "f1", []byte("foobar"), "octet")
-	testPutGet(t, "f2", []byte("La sonda New Horizons, a quasi due mesidal passaggio ravvicinato su Plutone, sta iniziando a inviare una dose consistente di immagini ad alta risoluzione del pianeta nano. La Nasa ha diffuso le prime foto il 10 settembre, come questa della Cthulhu Regio, ripresa il 14 luglio da una distanza di 80 mila km. Un’area più scura accanto alla chiara Sputnik Planum."), "octet")
-}
-
 func TestSmallWrites(t *testing.T) {
 	filename := "small-writes"
 	mode := "octet"
@@ -50,6 +46,22 @@ func TestSmallWrites(t *testing.T) {
 	if !bytes.Equal(bs, buf.Bytes()) {
 		t.Fatalf("sent: %s, received: %s", string(bs), buf.String())
 	}
+}
+
+func TestPutGet(t *testing.T) {
+	testPutGet(t, "f1", []byte("foobar"), "octet")
+	testPutGet(t, "f2", []byte("La sonda New Horizons, a quasi due mesidal passaggio ravvicinato su Plutone, sta iniziando a inviare una dose consistente di immagini ad alta risoluzione del pianeta nano. La Nasa ha diffuso le prime foto il 10 settembre, come questa della Cthulhu Regio, ripresa il 14 luglio da una distanza di 80 mila km. Un’area più scura accanto alla chiara Sputnik Planum."), "octet")
+	for i := 500; i < 520; i++ {
+		testPutGet(t, fmt.Sprintf("size-%d", i), randomByteArray(i), "octet")
+	}
+}
+
+func randomByteArray(n int) []byte {
+	bs := make([]byte, n)
+	for i := 0; i < n; i++ {
+		bs[i] = byte(rand.Int63() & 0xff)
+	}
+	return bs
 }
 
 func testPutGet(t *testing.T, filename string, bs []byte, mode string) {

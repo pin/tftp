@@ -31,20 +31,19 @@ func (s *sender) Run(isServerMode bool) {
 	}
 	var blockNumber uint16
 	blockNumber = 1
-	lastBlockSize := -1
 	for {
-		c, readError := s.reader.Read(buffer)
-		if readError != nil {
-			if readError == io.EOF { // && c == 0 ?
-				// we could have c != 0 here
-				if c != 0 {
-					panic("error!")
-				}
-				if lastBlockSize == BLOCK_SIZE || lastBlockSize == -1 {
-					sendError := s.sendBlock(buffer, 0, blockNumber, tmp)
-					if sendError != nil && s.log != nil {
-						s.log.Printf("Error sending last block: %v", sendError)
-					}
+		c, readError := io.ReadFull(s.reader, buffer)
+		// ErrUnexpectedEOF is used by ReadFull to signal an EOF in the middle
+		// of the pack. It's not really an errore in our case, so we just
+		// process it as a normal packet (the last one)
+		if readError != nil && readError != io.ErrUnexpectedEOF {
+			if readError == io.EOF {
+				// exactly 0 bytes were read; this means that the file is
+				// an exact multiple of the block size, and we need to send
+				// a 0-sized block to signal termination
+				sendError := s.sendBlock(buffer, 0, blockNumber, tmp)
+				if sendError != nil && s.log != nil {
+					s.log.Printf("Error sending last zero-size block: %v", sendError)
 				}
 			} else {
 				if s.log != nil {
@@ -56,9 +55,6 @@ func (s *sender) Run(isServerMode bool) {
 			}
 			return
 		}
-		if c == 0 {
-			continue
-		}
 		sendError := s.sendBlock(buffer, c, blockNumber, tmp)
 		if sendError != nil {
 			if s.log != nil {
@@ -68,7 +64,12 @@ func (s *sender) Run(isServerMode bool) {
 			return
 		}
 		blockNumber++
-		lastBlockSize = c
+		// If we read a smaller block, it means we've finished reading from the pipe,
+		// and thus we can exit. The reader already knows the file is finished
+		// because the block was smaller.
+		if c < len(buffer) {
+			return
+		}
 	}
 }
 

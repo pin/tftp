@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"sync"
 	"testing"
 )
 
@@ -79,8 +80,11 @@ func testPutGet(t *testing.T, filename string, bs []byte, mode string) {
 }
 
 var m = map[string][]byte{}
+var mu sync.Mutex
 
 func handleWrite(filename string, r *io.PipeReader) {
+	mu.Lock()
+	defer mu.Unlock()
 	_, exists := m[filename]
 	if exists {
 		r.CloseWithError(fmt.Errorf("File already exists: %s", filename))
@@ -97,6 +101,8 @@ func handleWrite(filename string, r *io.PipeReader) {
 }
 
 func handleRead(filename string, w *io.PipeWriter) {
+	mu.Lock()
+	defer mu.Unlock()
 	b, exists := m[filename]
 	if exists {
 		buffer := bytes.NewBuffer(b)

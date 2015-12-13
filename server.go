@@ -82,7 +82,7 @@ func (s Server) processRequest(conn *net.UDPConn) error {
 	if e != nil {
 		return nil
 	}
-	switch p := Packet(*p).(type) {
+	switch p := p.(type) {
 	case *WRQ:
 		s.Log.Printf("got WRQ (filename=%s, mode=%s)", p.Filename, p.Mode)
 		trasnmissionConn, e := s.transmissionConn()

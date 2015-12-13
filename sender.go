@@ -93,7 +93,7 @@ func (s *sender) sendRequest(tmp []byte) (e error) {
 			if e != nil {
 				continue
 			}
-			switch p := Packet(*packet).(type) {
+			switch p := packet.(type) {
 			case *ACK:
 				if p.BlockNumber == 0 {
 					s.log.Printf("got ACK #0")
@@ -128,7 +128,7 @@ func (s *sender) sendBlock(b []byte, c int, n uint16, tmp []byte) (e error) {
 			if e != nil {
 				continue
 			}
-			switch p := Packet(*packet).(type) {
+			switch p := packet.(type) {
 			case *ACK:
 				s.log.Printf("got ACK #%d", p.BlockNumber)
 				if n == p.BlockNumber {

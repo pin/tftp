@@ -82,7 +82,7 @@ func (c Client) Put(filename string, mode string, handler func(w *io.PipeWriter)
 		handler(writer)
 		wg.Done()
 	}()
-	s.Run(false)
+	s.run(false)
 	wg.Wait()
 	return nil
 }
@@ -105,7 +105,7 @@ func (c Client) Get(filename string, mode string, handler func(r *io.PipeReader)
 		handler(reader)
 		wg.Done()
 	}()
-	r.Run(false)
+	r.run(false)
 	wg.Wait()
 	return fmt.Errorf("Send timeout")
 }

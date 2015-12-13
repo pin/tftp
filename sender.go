@@ -17,15 +17,15 @@ type sender struct {
 	log        *log.Logger
 }
 
-func (s *sender) Run(isServerMode bool) {
+func (s *sender) run(serverMode bool) {
 	var buffer, tmp []byte
 	buffer = make([]byte, BLOCK_SIZE)
 	tmp = make([]byte, MAX_DATAGRAM_SIZE)
-	if !isServerMode {
-		e := s.sendRequest(tmp)
-		if e != nil {
-			s.log.Printf("Error starting transmission: %v", e)
-			s.reader.CloseWithError(e)
+	if !serverMode {
+		err := s.sendRequest(tmp)
+		if err != nil {
+			s.log.Printf("Error starting transmission: %v", err)
+			s.reader.CloseWithError(err)
 			return
 		}
 	}

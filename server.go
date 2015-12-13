@@ -102,7 +102,7 @@ func (s Server) processRequest(conn *net.UDPConn) error {
 			s.Log.Printf("sent ERROR (code=%d): %s", 1, e.Error())
 			return e
 		}
-		go r.Run(true)
+		go r.run(true)
 	case *RRQ:
 		s.Log.Printf("got RRQ (filename=%s, mode=%s)", p.Filename, p.Mode)
 		trasnmissionConn, e := s.transmissionConn()
@@ -112,7 +112,7 @@ func (s Server) processRequest(conn *net.UDPConn) error {
 		reader, writer := io.Pipe()
 		r := &sender{remoteAddr, trasnmissionConn, reader, p.Filename, p.Mode, s.Log}
 		go s.WriteHandler(p.Filename, writer)
-		go r.Run(true)
+		go r.run(true)
 	}
 	return nil
 }

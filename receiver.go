@@ -17,14 +17,14 @@ type receiver struct {
 	log        *log.Logger
 }
 
-func (r *receiver) Run(isServerMode bool) error {
+func (r *receiver) run(serverMode bool) error {
 	var blockNumber uint16
 	blockNumber = 1
 	var buffer []byte
 	buffer = make([]byte, MAX_DATAGRAM_SIZE)
 	firstBlock := true
 	for {
-		last, e := r.receiveBlock(buffer, blockNumber, firstBlock && !isServerMode)
+		last, e := r.receiveBlock(buffer, blockNumber, firstBlock && !serverMode)
 		if e != nil {
 			if r.log != nil {
 				r.log.Printf("Error receiving block %d: %v", blockNumber, e)

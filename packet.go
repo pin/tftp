@@ -153,7 +153,7 @@ func (p *ERROR) Pack() []byte {
 	return buffer.Bytes()
 }
 
-func ParsePacket(data []byte) (*Packet, error) {
+func ParsePacket(data []byte) (Packet, error) {
 	var p Packet
 	opcode := binary.BigEndian.Uint16(data)
 	switch opcode {
@@ -168,8 +168,7 @@ func ParsePacket(data []byte) (*Packet, error) {
 	case OP_ERROR:
 		p = &ERROR{}
 	default:
-		return nil, fmt.Errorf("Unknown packet type: %d", opcode)
+		return nil, fmt.Errorf("unknown opcode: %d", opcode)
 	}
-	pp := Packet(p)
-	return &pp, pp.Unpack(data)
+	return p, p.Unpack(data)
 }

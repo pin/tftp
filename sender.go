@@ -1,6 +1,7 @@
 package tftp
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -17,15 +18,17 @@ type sender struct {
 	log        *log.Logger
 }
 
-func (s *sender) Run(isServerMode bool) {
+var ErrSendTimeout = errors.New("send timeout")
+
+func (s *sender) run(serverMode bool) {
 	var buffer, tmp []byte
 	buffer = make([]byte, BLOCK_SIZE)
 	tmp = make([]byte, MAX_DATAGRAM_SIZE)
-	if !isServerMode {
-		e := s.sendRequest(tmp)
-		if e != nil {
-			s.log.Printf("Error starting transmission: %v", e)
-			s.reader.CloseWithError(e)
+	if !serverMode {
+		err := s.sendRequest(tmp)
+		if err != nil {
+			s.log.Printf("Error starting transmission: %v", err)
+			s.reader.CloseWithError(err)
 			return
 		}
 	}
@@ -93,7 +96,7 @@ func (s *sender) sendRequest(tmp []byte) (e error) {
 			if e != nil {
 				continue
 			}
-			switch p := Packet(*packet).(type) {
+			switch p := packet.(type) {
 			case *ACK:
 				if p.BlockNumber == 0 {
 					s.log.Printf("got ACK #0")
@@ -105,7 +108,7 @@ func (s *sender) sendRequest(tmp []byte) (e error) {
 			}
 		}
 	}
-	return fmt.Errorf("Send timeout")
+	return ErrSendTimeout
 }
 
 func (s *sender) sendBlock(b []byte, c int, n uint16, tmp []byte) (e error) {
@@ -128,7 +131,7 @@ func (s *sender) sendBlock(b []byte, c int, n uint16, tmp []byte) (e error) {
 			if e != nil {
 				continue
 			}
-			switch p := Packet(*packet).(type) {
+			switch p := packet.(type) {
 			case *ACK:
 				s.log.Printf("got ACK #%d", p.BlockNumber)
 				if n == p.BlockNumber {
@@ -139,5 +142,5 @@ func (s *sender) sendBlock(b []byte, c int, n uint16, tmp []byte) (e error) {
 			}
 		}
 	}
-	return fmt.Errorf("Send timeout")
+	return ErrSendTimeout
 }

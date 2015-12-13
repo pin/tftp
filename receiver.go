@@ -1,6 +1,7 @@
 package tftp
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -17,14 +18,16 @@ type receiver struct {
 	log        *log.Logger
 }
 
-func (r *receiver) Run(isServerMode bool) error {
+var ErrReceiveTimeout = errors.New("receive timeout")
+
+func (r *receiver) run(serverMode bool) error {
 	var blockNumber uint16
 	blockNumber = 1
 	var buffer []byte
 	buffer = make([]byte, MAX_DATAGRAM_SIZE)
 	firstBlock := true
 	for {
-		last, e := r.receiveBlock(buffer, blockNumber, firstBlock && !isServerMode)
+		last, e := r.receiveBlock(buffer, blockNumber, firstBlock && !serverMode)
 		if e != nil {
 			if r.log != nil {
 				r.log.Printf("Error receiving block %d: %v", blockNumber, e)
@@ -69,7 +72,7 @@ func (r *receiver) receiveBlock(b []byte, n uint16, firstBlockOnClient bool) (la
 			if e != nil {
 				continue
 			}
-			switch p := Packet(*packet).(type) {
+			switch p := packet.(type) {
 			case *DATA:
 				r.log.Printf("got DATA #%d (%d bytes)", p.BlockNumber, len(p.Data))
 				if n == p.BlockNumber {
@@ -90,7 +93,7 @@ func (r *receiver) receiveBlock(b []byte, n uint16, firstBlockOnClient bool) (la
 			}
 		}
 	}
-	return false, fmt.Errorf("Receive timeout")
+	return false, ErrReceiveTimeout
 }
 
 func (r *receiver) terminate(b []byte, n uint16, dallying bool) (e error) {
@@ -117,7 +120,7 @@ func (r *receiver) terminate(b []byte, n uint16, dallying bool) (e error) {
 			if e != nil {
 				continue
 			}
-			switch p := Packet(*packet).(type) {
+			switch p := packet.(type) {
 			case *DATA:
 				r.log.Printf("got DATA #%d (%d bytes)", p.BlockNumber, len(p.Data))
 				if n == p.BlockNumber {

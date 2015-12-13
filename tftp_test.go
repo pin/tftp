@@ -57,6 +57,55 @@ func TestPutGet(t *testing.T) {
 	}
 }
 
+func TestTimeout(t *testing.T) {
+	addr, _ := net.ResolveUDPAddr("udp", "localhost:12322")
+
+	log := log.New(os.Stderr, "", log.Ldate|log.Ltime)
+
+	writeHandler := func(filename string, r *io.PipeReader) {
+		buf := make([]byte, 64)
+		for i := 0; i < 5; i++ {
+			_, err := r.Read(buf)
+			if err != nil {
+				panic(err)
+			}
+		}
+		// server "fail" during receive
+	}
+
+	readHandler := func(filename string, w *io.PipeWriter) {
+		for i := 0; i < 5; i++ {
+			_, err := w.Write(randomByteArray(64))
+			if err != nil {
+				panic(err)
+			}
+		}
+		// server "fail" during send
+	}
+
+	s = &Server{addr, writeHandler, readHandler, log}
+	go s.Serve()
+
+	c = &Client{addr, log}
+
+	var err error
+	c.Put("test", "octet", func(writer *io.PipeWriter) {
+		_, err = writer.Write(randomByteArray(5000))
+		writer.Close()
+	})
+	if err != ErrSendTimeout {
+		t.Fatalf("Send timeout expected, got %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	c.Get("test", "octet", func(reader *io.PipeReader) {
+		_, err = buf.ReadFrom(reader)
+	})
+	if err != ErrReceiveTimeout {
+		t.Fatalf("Receive timeout expected, got %v", err)
+	}
+}
+
 func randomByteArray(n int) []byte {
 	bs := make([]byte, n)
 	for i := 0; i < n; i++ {

@@ -1,6 +1,7 @@
 package tftp
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -16,6 +17,8 @@ type receiver struct {
 	mode       string
 	log        *log.Logger
 }
+
+var ErrReceiveTimeout = errors.New("receive timeout")
 
 func (r *receiver) run(serverMode bool) error {
 	var blockNumber uint16
@@ -90,7 +93,7 @@ func (r *receiver) receiveBlock(b []byte, n uint16, firstBlockOnClient bool) (la
 			}
 		}
 	}
-	return false, fmt.Errorf("Receive timeout")
+	return false, ErrReceiveTimeout
 }
 
 func (r *receiver) terminate(b []byte, n uint16, dallying bool) (e error) {

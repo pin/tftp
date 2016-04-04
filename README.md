@@ -94,3 +94,10 @@ if err != nil {
 }
 fmt.Printf("%d bytes received\n", n)
 ```
+
+Legacy API
+----------
+API has been improved in non-backward-compartible way recently.
+Please use `v1` release in legacy code.
+
+Legacy code should import http://gopkg.in/pin/tftp.v1

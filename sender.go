@@ -33,16 +33,18 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 				binary.BigEndian.PutUint16(s.send[2:4], s.block)
 				_, err = s.sendWithRetry(4)
 				if err != nil {
+					s.abort(err)
 					return n, err
 				}
 				return n, nil
 			}
-			// TODO: send error
+			s.abort(err)
 			return n, err
 		}
 		binary.BigEndian.PutUint16(s.send[2:4], s.block)
 		_, err = s.sendWithRetry(4 + l)
 		if err != nil {
+			s.abort(err)
 			return n, err
 		}
 		if l < blockLength {

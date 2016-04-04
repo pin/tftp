@@ -12,38 +12,42 @@ TFTP Server
 
 ```go
 func writeHanlder(filename string, w io.WriterTo) error {
-	file, err := os.Create(filename)
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return err
 	}
 	n, err := w.WriteTo(file)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return err
 	}
-	logf("%d bytes received", n)
+	fmt.Printf("%d bytes received\n", n)
 	return nil
 }
 func readHandler(filename string, r io.ReaderFrom) error {
 	file, err := os.Open(filename)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return err
 	}
 	n, err := r.ReadFrom(file)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return err
 	}
-	logf("%d bytes sent", n)
+	fmt.Printf("%d bytes sent\n", n)
 	return nil
 }
-...
-s, err := tftp.NewServer(readHandler, writeHanlder)
-if err != nil {
-	...
-}
-s.SetTimeout(5 * time.Second) // optional
-err := s.ListenAndServe(":69") // blocks until s.Shutdown() called
-if err != nil
-	...
+
+func main() {
+	s := tftp.NewServer(readHandler, writeHanlder)
+	s.SetTimeout(5 * time.Second) // optional
+	err := s.ListenAndServe(":69") // blocks until s.Shutdown() is called
+	if err != nil {
+		fmt.Fprintf(os.Stdout, "server: %v\n", err)
+		os.Exit(1)
+	}
 }
 ```
 

@@ -33,6 +33,7 @@ func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 			l, err := w.Write(r.receive[4:r.l])
 			n += int64(l)
 			if err != nil {
+				r.abort(err)
 				return n, err
 			}
 			if r.l-4 < blockLength {
@@ -46,6 +47,7 @@ func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 		r.block++
 		ll, _, err := r.receiveWithRetry(4)
 		if err != nil {
+			r.abort(err)
 			return n, err
 		}
 		r.l = ll

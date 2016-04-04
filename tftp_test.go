@@ -4,165 +4,421 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"os"
 	"sync"
 	"testing"
+	"testing/iotest"
+	"time"
 )
 
-var (
-	c *Client
-	s *Server
-)
-
-func TestMain(m *testing.M) {
-	addr, _ := net.ResolveUDPAddr("udp", "localhost:12312")
-
-	log := log.New(os.Stderr, "", log.Ldate|log.Ltime)
-
-	s = &Server{addr, handleWrite, handleRead, log}
-	go s.Serve()
-
-	c = &Client{addr, log}
-
-	os.Exit(m.Run())
+func TestPackUnpack(t *testing.T) {
+	v := []string{"test-filename/with-subdir"}
+	for _, filename := range v {
+		for _, mode := range []string{"octet", "netascii"} {
+			packUnpack(t, filename, mode)
+		}
+	}
 }
 
-func TestSmallWrites(t *testing.T) {
-	filename := "small-writes"
+func packUnpack(t *testing.T, filename, mode string) {
+	b := make([]byte, datagramLength)
+	for _, op := range []uint16{opRRQ, opWRQ} {
+		n := packRQ(b, op, filename, mode)
+		f, m, err := unpackRQ(b[:n])
+		if err != nil {
+			t.Errorf("%s pack/unpack: %v", filename, err)
+		}
+		if f != filename {
+			t.Errorf("filename mismatch (%s): '%x' vs '%x'",
+				filename, f, filename)
+		}
+		if m != mode {
+			t.Errorf("mode mismatch (%s): '%x' vs '%x'",
+				mode, m, mode)
+		}
+	}
+}
+
+func TestZeroLength(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	testSendReceive(t, c, 0)
+}
+
+func TestNearBlockLength(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	for i := 450; i < 520; i++ {
+		testSendReceive(t, c, int64(i))
+	}
+}
+
+func TestRandomLength(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	r := rand.New(rand.NewSource(42))
+	for i := 0; i < 100; i++ {
+		testSendReceive(t, c, r.Int63n(100000))
+	}
+}
+
+func TestBigFile(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	testSendReceive(t, c, 3*1000*1000)
+}
+
+func TestByOneByte(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	filename := "test-by-one-byte"
 	mode := "octet"
-	bs := []byte("just write a tftpHandler that writes a file into the pipe one byte at a time")
-	c.Put(filename, mode, func(writer *io.PipeWriter) {
-		for i := 0; i < len(bs); i++ {
-			writer.Write(bs[i : i+1])
-		}
-		writer.Close()
-	})
-	buf := new(bytes.Buffer)
-	c.Get(filename, mode, func(reader *io.PipeReader) {
-		buf.ReadFrom(reader)
-	})
+	const length = 80000
+	sender, err := c.Send(filename, mode)
+	if err != nil {
+		t.Fatalf("requesting write: %v", err)
+	}
+	r := iotest.OneByteReader(io.LimitReader(
+		newRandReader(rand.NewSource(42)), length))
+	n, err := sender.ReadFrom(r)
+	if err != nil {
+		t.Fatalf("send error: %v", err)
+	}
+	if n != length {
+		t.Errorf("%s read length mismatch: %d != %d", filename, n, length)
+	}
+	readTransfer, err := c.Receive(filename, mode)
+	if err != nil {
+		t.Fatalf("requesting read %s: %v", filename, err)
+	}
+	buf := &bytes.Buffer{}
+	n, err = readTransfer.WriteTo(buf)
+	if err != nil {
+		t.Fatalf("%s read error: %v", filename, err)
+	}
+	if n != length {
+		t.Errorf("%s read length mismatch: %d != %d", filename, n, length)
+	}
+	bs, _ := ioutil.ReadAll(io.LimitReader(
+		newRandReader(rand.NewSource(42)), length))
 	if !bytes.Equal(bs, buf.Bytes()) {
-		t.Fatalf("sent: %s, received: %s", string(bs), buf.String())
+		t.Errorf("\nsent: %x\nrcvd: %x", bs, buf)
 	}
 }
 
-func TestPutGet(t *testing.T) {
-	testPutGet(t, "f1", []byte("foobar"), "octet")
-	testPutGet(t, "f2", []byte("La sonda New Horizons, a quasi due mesidal passaggio ravvicinato su Plutone, sta iniziando a inviare una dose consistente di immagini ad alta risoluzione del pianeta nano. La Nasa ha diffuso le prime foto il 10 settembre, come questa della Cthulhu Regio, ripresa il 14 luglio da una distanza di 80 mila km. Un’area più scura accanto alla chiara Sputnik Planum."), "octet")
-	for i := 500; i < 520; i++ {
-		testPutGet(t, fmt.Sprintf("size-%d", i), randomByteArray(i), "octet")
+func TestDuplicate(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	filename := "test-duplicate"
+	mode := "octet"
+	bs := []byte("lalala")
+	sender, err := c.Send(filename, mode)
+	if err != nil {
+		t.Fatalf("requesting write: %v", err)
 	}
+	buf := bytes.NewBuffer(bs)
+	_, err = sender.ReadFrom(buf)
+	if err != nil {
+		t.Fatalf("send error: %v", err)
+	}
+	sender, err = c.Send(filename, mode)
+	if err == nil {
+		t.Fatalf("file already exists")
+	}
+	t.Logf("sending file that already exists: %v", err)
 }
 
-func TestTimeout(t *testing.T) {
-	addr, _ := net.ResolveUDPAddr("udp", "localhost:12322")
-
-	log := log.New(os.Stderr, "", log.Ldate|log.Ltime)
-
-	writeHandler := func(filename string, r *io.PipeReader) {
-		buf := make([]byte, 64)
-		for i := 0; i < 5; i++ {
-			_, err := r.Read(buf)
-			if err != nil {
-				panic(err)
-			}
-		}
-		// server "fail" during receive
+func TestNotFound(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	filename := "test-not-exists"
+	mode := "octet"
+	_, err := c.Receive(filename, mode)
+	if err == nil {
+		t.Fatalf("file not exists", err)
 	}
-
-	readHandler := func(filename string, w *io.PipeWriter) {
-		for i := 0; i < 5; i++ {
-			_, err := w.Write(randomByteArray(64))
-			if err != nil {
-				panic(err)
-			}
-		}
-		// server "fail" during send
-	}
-
-	s = &Server{addr, writeHandler, readHandler, log}
-	go s.Serve()
-
-	c = &Client{addr, log}
-
-	var err error
-	c.Put("test", "octet", func(writer *io.PipeWriter) {
-		_, err = writer.Write(randomByteArray(5000))
-		writer.Close()
-	})
-	if err != ErrSendTimeout {
-		t.Fatalf("Send timeout expected, got %v", err)
-	}
-
-	buf := new(bytes.Buffer)
-	c.Get("test", "octet", func(reader *io.PipeReader) {
-		_, err = buf.ReadFrom(reader)
-	})
-	if err != ErrReceiveTimeout {
-		t.Fatalf("Receive timeout expected, got %v", err)
-	}
+	t.Logf("receiving file that does not exist: %v", err)
 }
 
-func randomByteArray(n int) []byte {
-	bs := make([]byte, n)
-	for i := 0; i < n; i++ {
-		bs[i] = byte(rand.Int63() & 0xff)
+func testSendReceive(t *testing.T, client *Client, length int64) {
+	filename := fmt.Sprintf("length-%d-bytes", length)
+	mode := "octet"
+	writeTransfer, err := client.Send(filename, mode)
+	if err != nil {
+		t.Fatalf("requesting write %s: %v", filename, err)
 	}
-	return bs
-}
-
-func testPutGet(t *testing.T, filename string, bs []byte, mode string) {
-	c.Put(filename, mode, func(writer *io.PipeWriter) {
-		writer.Write(bs)
-		writer.Close()
-	})
-	buf := new(bytes.Buffer)
-	c.Get(filename, mode, func(reader *io.PipeReader) {
-		buf.ReadFrom(reader)
-	})
+	r := io.LimitReader(newRandReader(rand.NewSource(42)), length)
+	n, err := writeTransfer.ReadFrom(r)
+	if err != nil {
+		t.Fatalf("%s write error: %v", filename, err)
+	}
+	if n != length {
+		t.Errorf("%s write length mismatch: %d != %d", filename, n, length)
+	}
+	readTransfer, err := client.Receive(filename, mode)
+	if err != nil {
+		t.Fatalf("requesting read %s: %v", filename, err)
+	}
+	buf := &bytes.Buffer{}
+	n, err = readTransfer.WriteTo(buf)
+	if err != nil {
+		t.Fatalf("%s read error: %v", filename, err)
+	}
+	if n != length {
+		t.Errorf("%s read length mismatch: %d != %d", filename, n, length)
+	}
+	bs, _ := ioutil.ReadAll(io.LimitReader(
+		newRandReader(rand.NewSource(42)), length))
 	if !bytes.Equal(bs, buf.Bytes()) {
-		t.Fatalf("sent: %s, received: %s", string(bs), buf.String())
+		t.Errorf("\nsent: %x\nrcvd: %x", bs, buf)
 	}
 }
 
-var m = map[string][]byte{}
-var mu sync.Mutex
-
-func handleWrite(filename string, r *io.PipeReader) {
-	mu.Lock()
-	defer mu.Unlock()
-	_, exists := m[filename]
-	if exists {
-		r.CloseWithError(fmt.Errorf("File already exists: %s", filename))
-		return
-	}
-	buffer := &bytes.Buffer{}
-	c, e := buffer.ReadFrom(r)
-	if e != nil {
-		fmt.Fprintf(os.Stderr, "Can't receive %s: %v\n", filename, e)
-	} else {
-		fmt.Fprintf(os.Stderr, "Received %s (%d bytes)\n", filename, c)
-		m[filename] = buffer.Bytes()
-	}
+type testBackend struct {
+	m  map[string][]byte
+	mu sync.Mutex
 }
 
-func handleRead(filename string, w *io.PipeWriter) {
-	mu.Lock()
-	defer mu.Unlock()
-	b, exists := m[filename]
-	if exists {
-		buffer := bytes.NewBuffer(b)
-		c, e := buffer.WriteTo(w)
-		if e != nil {
-			fmt.Fprintf(os.Stderr, "Can't send %s: %v\n", filename, e)
-		} else {
-			fmt.Fprintf(os.Stderr, "Sent %s (%d bytes)\n", filename, c)
+func makeTestServer() (*Server, *Client) {
+	b := &testBackend{}
+	b.m = make(map[string][]byte)
+
+	// Create server
+	s := NewServer(b.handleRead, b.handleWrite)
+
+	a, err := net.ResolveUDPAddr("udp", ":0")
+	if err != nil {
+		panic(err)
+	}
+	conn, err := net.ListenUDP("udp", a)
+	if err != nil {
+		panic(err)
+	}
+
+	go s.Serve(conn)
+
+	// Create client for that server
+	c, err := NewClient(conn.LocalAddr().String())
+	if err != nil {
+		panic(err)
+	}
+
+	return s, c
+}
+
+func (b *testBackend) handleWrite(filename string, wt io.WriterTo) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, ok := b.m[filename]
+	if ok {
+		fmt.Fprintf(os.Stderr, "File %s already exists\n", filename)
+		return fmt.Errorf("file already exists")
+	}
+	buf := &bytes.Buffer{}
+	n, err := wt.WriteTo(buf)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Can't receive %s: %v\n", filename, err)
+		return err
+	}
+	b.m[filename] = buf.Bytes()
+	fmt.Fprintf(os.Stderr, "Received %s (%d bytes)\n", filename, n)
+	return nil
+}
+
+func (b *testBackend) handleRead(filename string, rf io.ReaderFrom) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	bs, ok := b.m[filename]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "File %s not found\n", filename)
+		return fmt.Errorf("file not found")
+	}
+	n, err := rf.ReadFrom(bytes.NewBuffer(bs))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Can't send %s: %v\n", filename, err)
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "Sent %s (%d bytes)\n", filename, n)
+	return nil
+}
+
+type randReader struct {
+	src  rand.Source
+	next int64
+	i    int8
+}
+
+func newRandReader(src rand.Source) io.Reader {
+	r := &randReader{
+		src:  src,
+		next: src.Int63(),
+	}
+	return r
+}
+
+func (r *randReader) Read(p []byte) (n int, err error) {
+	next, i := r.next, r.i
+	for n = 0; n < len(p); n++ {
+		if i == 7 {
+			next, i = r.src.Int63(), 0
 		}
-		w.Close()
-	} else {
-		w.CloseWithError(fmt.Errorf("File not found: %s", filename))
+		p[n] = byte(next)
+		next >>= 8
+		i++
 	}
+	r.next, r.i = next, i
+	return
+}
+
+func TestServerSendTimeout(t *testing.T) {
+	s, c := makeTestServer()
+	s.SetTimeout(time.Second)
+	var serverErr error
+	s.readHandler = func(filename string, rf io.ReaderFrom) error {
+		r := io.LimitReader(newRandReader(rand.NewSource(42)), 80000)
+		_, serverErr = rf.ReadFrom(r)
+		return serverErr
+	}
+	defer s.Shutdown()
+	filename := "test-server-send-timeout"
+	mode := "octet"
+	readTransfer, err := c.Receive(filename, mode)
+	if err != nil {
+		t.Fatalf("requesting read %s: %v", filename, err)
+	}
+	w := &slowWriter{
+		n:     3,
+		delay: 8 * time.Second,
+	}
+	_, _ = readTransfer.WriteTo(w)
+	netErr, ok := serverErr.(net.Error)
+	if !ok {
+		t.Fatalf("network error expected: %T", serverErr)
+	}
+	if !netErr.Timeout() {
+		t.Fatalf("timout is expected: %v", serverErr)
+	}
+}
+
+func TestServerReceiveTimeout(t *testing.T) {
+	s, c := makeTestServer()
+	s.SetTimeout(time.Second)
+	var serverErr error
+	s.writeHandler = func(filename string, wt io.WriterTo) error {
+		buf := &bytes.Buffer{}
+		_, serverErr = wt.WriteTo(buf)
+		return serverErr
+	}
+	defer s.Shutdown()
+	filename := "test-server-receive-timeout"
+	mode := "octet"
+	writeTransfer, err := c.Send(filename, mode)
+	if err != nil {
+		t.Fatalf("requesting write %s: %v", filename, err)
+	}
+	r := &slowReader{
+		r:     io.LimitReader(newRandReader(rand.NewSource(42)), 80000),
+		n:     3,
+		delay: 8 * time.Second,
+	}
+	_, _ = writeTransfer.ReadFrom(r)
+	netErr, ok := serverErr.(net.Error)
+	if !ok {
+		t.Fatalf("network error expected: %T", serverErr)
+	}
+	if !netErr.Timeout() {
+		t.Fatalf("timout is expected: %v", serverErr)
+	}
+}
+
+func TestClientReceiveTimeout(t *testing.T) {
+	s, c := makeTestServer()
+	c.SetTimeout(time.Second)
+	s.readHandler = func(filename string, rf io.ReaderFrom) error {
+		r := &slowReader{
+			r:     io.LimitReader(newRandReader(rand.NewSource(42)), 80000),
+			n:     3,
+			delay: 8 * time.Second,
+		}
+		_, err := rf.ReadFrom(r)
+		return err
+	}
+	defer s.Shutdown()
+	filename := "test-client-receive-timeout"
+	mode := "octet"
+	readTransfer, err := c.Receive(filename, mode)
+	if err != nil {
+		t.Fatalf("requesting read %s: %v", filename, err)
+	}
+	buf := &bytes.Buffer{}
+	_, err = readTransfer.WriteTo(buf)
+	netErr, ok := err.(net.Error)
+	if !ok {
+		t.Fatalf("network error expected: %T", err)
+	}
+	if !netErr.Timeout() {
+		t.Fatalf("timout is expected: %v", err)
+	}
+}
+
+func TestClientSendTimeout(t *testing.T) {
+	s, c := makeTestServer()
+	c.SetTimeout(time.Second)
+	s.writeHandler = func(filename string, wt io.WriterTo) error {
+		w := &slowWriter{
+			n:     3,
+			delay: 8 * time.Second,
+		}
+		_, err := wt.WriteTo(w)
+		return err
+	}
+	defer s.Shutdown()
+	filename := "test-client-send-timeout"
+	mode := "octet"
+	writeTransfer, err := c.Send(filename, mode)
+	if err != nil {
+		t.Fatalf("requesting write %s: %v", filename, err)
+	}
+	r := io.LimitReader(newRandReader(rand.NewSource(42)), 80000)
+	_, err = writeTransfer.ReadFrom(r)
+	netErr, ok := err.(net.Error)
+	if !ok {
+		t.Fatalf("network error expected: %T", err)
+	}
+	if !netErr.Timeout() {
+		t.Fatalf("timout is expected: %v", err)
+	}
+}
+
+type slowReader struct {
+	r     io.Reader
+	n     int64
+	delay time.Duration
+}
+
+func (r *slowReader) Read(p []byte) (n int, err error) {
+	if r.n > 0 {
+		r.n--
+		return r.r.Read(p)
+	}
+	time.Sleep(r.delay)
+	return r.r.Read(p)
+}
+
+type slowWriter struct {
+	r     io.Reader
+	n     int64
+	delay time.Duration
+}
+
+func (r *slowWriter) Write(p []byte) (n int, err error) {
+	if r.n > 0 {
+		r.n--
+		return len(p), nil
+	}
+	time.Sleep(r.delay)
+	return len(p), nil
 }

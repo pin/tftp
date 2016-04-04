@@ -1,97 +1,92 @@
 TFTP server and client library for Golang
 =========================================
 
-	import "github.com/pin/tftp"
+[![Build Status](https://travis-ci.org/pin/tftp.svg?branch=master)](https://travis-ci.org/pin/tftp)
+
+``` go
+import "github.com/pin/tftp"
+```
 
 TFTP Server
 -----------
-It requires bind address, handlers for read and write requests and optional logger.
 
-	func HandleWrite(filename string, r *io.PipeReader) {
-		buffer := &bytes.Buffer{}
-		c, e := buffer.ReadFrom(r)
-		if e != nil {
-			fmt.Fprintf(os.Stderr, "Can't receive %s: %v\n", filename, e)
-		} else {
-			fmt.Fprintf(os.Stderr, "Received %s (%d bytes)\n", filename, c)
-			...
-		}
+```go
+func writeHanlder(filename string, w io.WriterTo) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
 	}
-	func HandleRead(filename string, w *io.PipeWriter) {
-		if fileExists {
-			...
-			c, e := buffer.WriteTo(w)
-			if e != nil {
-				fmt.Fprintf(os.Stderr, "Can't send %s: %v\n", filename, e)
-			} else {
-				fmt.Fprintf(os.Stderr, "Sent %s (%d bytes)\n", filename, c)
-			}
-			w.Close()
-		} else {
-			w.CloseWithError(fmt.Errorf("File not exists: %s", filename))
-		}
+	n, err := w.WriteTo(file)
+	if err != nil {
+		return err
 	}
+	logf("%d bytes received", n)
+	return nil
+}
+func readHandler(filename string, r io.ReaderFrom) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	n, err := r.ReadFrom(file)
+	if err != nil {
+		return err
+	}
+	logf("%d bytes sent", n)
+	return nil
+}
+...
+s, err := tftp.NewServer(readHandler, writeHanlder)
+if err != nil {
 	...
-	addr, e := net.ResolveUDPAddr("udp", ":69")
-	if e != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", e)
-		os.Exit(1)
-	}
-	log := log.New(os.Stderr, "TFTP", log.Ldate | log.Ltime)
-	s := tftp.Server{addr, HandleWrite, HandleRead, log}
-	e = s.Serve()
-	if e != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", e)
-		os.Exit(1)
-	}
+}
+s.SetTimeout(5 * time.Second) // optional
+err := s.ListenAndServe(":69") // blocks until s.Shutdown() called
+if err != nil
+	...
+}
+```
 
 TFTP Client
 -----------
-It requires remote address and optional logger.
+Uploading file to server:
 
-Uploading file to server example
+```go
+file, err := os.Open(path)
+if err != nil {
+	...
+}
+c, err := tftp.NewClient("172.16.4.21:69")
+if err != nil {
+	...
+}
+c.SetTimeout(5 * time.Second) // optional
+r, err := c.Send("foobar.txt", "octet")
+if err != nil {
+	...
+}
+n, err := r.ReadFrom(file)
+fmt.Printf("%d bytes sent\n", n)
+```
 
-	addr, e := net.ResolveUDPAddr("udp", "example.org:69")
-	if e != nil {
-		...
-	}
-	file, e := os.Open("/etc/passwd")
-	if e != nil {
-		...
-	}
-	r := bufio.NewReader(file)
-	log := log.New(os.Stderr, "", log.Ldate | log.Ltime)
-	c := tftp.Client{addr, log}
-	c.Put(filename, mode, func(writer *io.PipeWriter) {
-		n, writeError := r.WriteTo(writer)
-		if writeError != nil {
-			fmt.Fprintf(os.Stderr, "Can't put %s: %v\n", filename, writeError);
-		} else {
-			fmt.Fprintf(os.Stderr, "Put %s (%d bytes)\n", filename, n);
-		}
-		writer.Close()
-	})
-	
-Downloading file from server example
+Downloading file from server:
 
-	addr, e := net.ResolveUDPAddr("udp", "example.org:69")
-	if e != nil {
-		...
-	}
-	file, e := os.Create("/var/tmp/debian.img")
-	if e != nil {
-		...
-	}
-	w := bufio.NewWriter(file)
-	log := log.New(os.Stderr, "", log.Ldate | log.Ltime)
-	c := tftp.Client{addr, log}
-	c.Get(filename, mode, func(reader *io.PipeReader) {
-		n, readError := w.ReadFrom(reader)
-		if readError != nil {
-			fmt.Fprintf(os.Stderr, "Can't get %s: %v\n", filename, readError);
-		} else {
-			fmt.Fprintf(os.Stderr, "Got %s (%d bytes)\n", filename, n);
-		}
-		w.Flush()
-		file.Close()
-	})
+```go
+c, err := tftp.NewClient("172.16.4.21:69")
+if err != nil {
+	...
+}
+w, err := c.Receive("foobar.txt", "octet")
+if err != nil {
+	...
+}
+file, err := os.Create(path)
+if err != nil {
+	...
+}
+n, err := w.WriteTo(file)
+if err != nil {
+	...
+}
+fmt.Printf("%d bytes received\n", n)
+```

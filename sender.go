@@ -1,146 +1,105 @@
 package tftp
 
 import (
-	"errors"
+	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"time"
+
+	"github.com/pin/tftp/netascii"
 )
 
 type sender struct {
-	remoteAddr *net.UDPAddr
-	conn       *net.UDPConn
-	reader     *io.PipeReader
-	filename   string
-	mode       string
-	log        *log.Logger
+	conn    *net.UDPConn
+	addr    *net.UDPAddr
+	send    []byte
+	receive []byte
+	retry   Retry
+	timeout time.Duration
+	block   uint16
+	mode    string
 }
 
-var ErrSendTimeout = errors.New("send timeout")
-
-func (s *sender) run(serverMode bool) {
-	var buffer, tmp []byte
-	buffer = make([]byte, BLOCK_SIZE)
-	tmp = make([]byte, MAX_DATAGRAM_SIZE)
-	if !serverMode {
-		err := s.sendRequest(tmp)
-		if err != nil {
-			s.log.Printf("Error starting transmission: %v", err)
-			s.reader.CloseWithError(err)
-			return
-		}
+func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
+	if s.mode == "netascii" {
+		r = netascii.ToReader(r)
 	}
-	var blockNumber uint16
-	blockNumber = 1
 	for {
-		c, readError := io.ReadFull(s.reader, buffer)
-		// ErrUnexpectedEOF is used by ReadFull to signal an EOF in the middle
-		// of the pack. It's not really an errore in our case, so we just
-		// process it as a normal packet (the last one)
-		if readError != nil && readError != io.ErrUnexpectedEOF {
-			if readError == io.EOF {
-				// exactly 0 bytes were read; this means that the file is
-				// an exact multiple of the block size, and we need to send
-				// a 0-sized block to signal termination
-				sendError := s.sendBlock(buffer, 0, blockNumber, tmp)
-				if sendError != nil && s.log != nil {
-					s.log.Printf("Error sending last zero-size block: %v", sendError)
+		l, err := io.ReadFull(r, s.send[4:])
+		n += int64(l)
+		if err != nil && err != io.ErrUnexpectedEOF {
+			if err == io.EOF {
+				binary.BigEndian.PutUint16(s.send[2:4], s.block)
+				_, err = s.sendWithRetry(4)
+				if err != nil {
+					return n, err
 				}
-			} else {
-				if s.log != nil {
-					s.log.Printf("Handler error: %v", readError)
-				}
-				errorPacket := ERROR{1, readError.Error()}
-				s.conn.WriteToUDP(errorPacket.Pack(), s.remoteAddr)
-				s.log.Printf("sent ERROR (code=%d): %s", 1, readError.Error())
+				return n, nil
 			}
-			return
+			// TODO: send error
+			return n, err
 		}
-		sendError := s.sendBlock(buffer, c, blockNumber, tmp)
-		if sendError != nil {
-			if s.log != nil {
-				s.log.Printf("Error sending block %d: %v", blockNumber, sendError)
+		binary.BigEndian.PutUint16(s.send[2:4], s.block)
+		_, err = s.sendWithRetry(4 + l)
+		if err != nil {
+			return n, err
+		}
+		if l < blockLength {
+			return n, nil
+		}
+		s.block++
+	}
+}
+
+func (s *sender) sendWithRetry(l int) (*net.UDPAddr, error) {
+	s.retry.Reset()
+	for {
+		addr, err := s.sendDatagram(l)
+		if _, ok := err.(net.Error); ok && s.retry.Count() < 3 {
+			s.retry.Backoff()
+			continue
+		}
+		return addr, err
+	}
+}
+
+func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
+	err := s.conn.SetReadDeadline(time.Now().Add(s.timeout))
+	if err != nil {
+		return nil, err
+	}
+	_, err = s.conn.WriteToUDP(s.send[:l], s.addr)
+	if err != nil {
+		return nil, err //TODO wrap error
+	}
+	for {
+		n, addr, err := s.conn.ReadFromUDP(s.receive)
+		if err != nil {
+			return nil, err
+		}
+		p, err := parsePacket(s.receive[:n])
+		if err != nil {
+			continue // just ignore
+		}
+		switch p := p.(type) {
+		case pACK:
+			block := p.block()
+			if s.block == block {
+				return addr, nil
 			}
-			s.reader.CloseWithError(sendError)
-			return
-		}
-		blockNumber++
-		// If we read a smaller block, it means we've finished reading from the pipe,
-		// and thus we can exit. The reader already knows the file is finished
-		// because the block was smaller.
-		if c < len(buffer) {
-			return
+		case pERROR:
+			return nil, fmt.Errorf("sending block %d: code=%d, error: %s",
+				s.block, p.code(), p.message())
 		}
 	}
 }
 
-func (s *sender) sendRequest(tmp []byte) (e error) {
-	for i := 0; i < 3; i++ {
-		wrqPacket := WRQ{s.filename, s.mode}
-		s.conn.WriteToUDP(wrqPacket.Pack(), s.remoteAddr)
-		s.log.Printf("sent WRQ (filename=%s, mode=%s)", s.filename, s.mode)
-		setDeadlineError := s.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-		if setDeadlineError != nil {
-			return fmt.Errorf("Could not set UDP timeout: %v", setDeadlineError)
-		}
-		for {
-			c, remoteAddr, readError := s.conn.ReadFromUDP(tmp)
-			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
-				break
-			} else if readError != nil {
-				return fmt.Errorf("Error reading UDP packet: %v", readError)
-			}
-			packet, e := ParsePacket(tmp[:c])
-			if e != nil {
-				continue
-			}
-			switch p := packet.(type) {
-			case *ACK:
-				if p.BlockNumber == 0 {
-					s.log.Printf("got ACK #0")
-					s.remoteAddr = remoteAddr
-					return nil
-				}
-			case *ERROR:
-				return fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
-			}
-		}
+func (s *sender) abort(err error) error {
+	n := packERROR(s.send, 1, err.Error())
+	_, err = s.conn.WriteToUDP(s.send[:n], s.addr)
+	if err != nil {
+		return err //TODO wrap error
 	}
-	return ErrSendTimeout
-}
-
-func (s *sender) sendBlock(b []byte, c int, n uint16, tmp []byte) (e error) {
-	for i := 0; i < 3; i++ {
-		setDeadlineError := s.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-		if setDeadlineError != nil {
-			return fmt.Errorf("Could not set UDP timeout: %v", setDeadlineError)
-		}
-		dataPacket := DATA{n, b[:c]}
-		s.conn.WriteToUDP(dataPacket.Pack(), s.remoteAddr)
-		s.log.Printf("sent DATA #%d (%d bytes)", n, c)
-		for {
-			c, _, readError := s.conn.ReadFromUDP(tmp)
-			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
-				break
-			} else if readError != nil {
-				return fmt.Errorf("Error reading UDP packet: %v", readError)
-			}
-			packet, e := ParsePacket(tmp[:c])
-			if e != nil {
-				continue
-			}
-			switch p := packet.(type) {
-			case *ACK:
-				s.log.Printf("got ACK #%d", p.BlockNumber)
-				if n == p.BlockNumber {
-					return nil
-				}
-			case *ERROR:
-				return fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
-			}
-		}
-	}
-	return ErrSendTimeout
+	return nil
 }

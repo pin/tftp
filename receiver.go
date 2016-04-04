@@ -1,135 +1,125 @@
 package tftp
 
 import (
-	"errors"
+	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"time"
+
+	"github.com/pin/tftp/netascii"
 )
 
 type receiver struct {
-	remoteAddr *net.UDPAddr
-	conn       *net.UDPConn
-	writer     *io.PipeWriter
-	filename   string
-	mode       string
-	log        *log.Logger
+	send     []byte
+	receive  []byte
+	addr     *net.UDPAddr
+	conn     *net.UDPConn
+	block    uint16
+	retry    Retry
+	timeout  time.Duration
+	l        int
+	autoTerm bool
+	dally    bool
+	mode     string
 }
 
-var ErrReceiveTimeout = errors.New("receive timeout")
-
-func (r *receiver) run(serverMode bool) error {
-	var blockNumber uint16
-	blockNumber = 1
-	var buffer []byte
-	buffer = make([]byte, MAX_DATAGRAM_SIZE)
-	firstBlock := true
-	for {
-		last, e := r.receiveBlock(buffer, blockNumber, firstBlock && !serverMode)
-		if e != nil {
-			if r.log != nil {
-				r.log.Printf("Error receiving block %d: %v", blockNumber, e)
-			}
-			r.writer.CloseWithError(e)
-			return e
-		}
-		firstBlock = false
-		if last {
-			break
-		}
-		blockNumber++
+func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
+	if r.mode == "netascii" {
+		w = netascii.FromWriter(w)
 	}
-	r.writer.Close()
-	r.terminate(buffer, blockNumber, false)
+	for {
+		if r.l > 0 {
+			l, err := w.Write(r.receive[4:r.l])
+			n += int64(l)
+			if err != nil {
+				return n, err
+			}
+			if r.l-4 < blockLength {
+				if r.autoTerm {
+					r.terminate()
+				}
+				return n, nil
+			}
+		}
+		binary.BigEndian.PutUint16(r.send[2:4], r.block)
+		r.block++
+		ll, _, err := r.receiveWithRetry(4)
+		if err != nil {
+			return n, err
+		}
+		r.l = ll
+	}
+}
+
+func (s *receiver) receiveWithRetry(l int) (int, *net.UDPAddr, error) {
+	s.retry.Reset()
+	for {
+		n, addr, err := s.receiveDatagram(l)
+		if _, ok := err.(net.Error); ok && s.retry.Count() < 3 {
+			s.retry.Backoff()
+			continue
+		}
+		return n, addr, err
+	}
+}
+
+func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
+	err := r.conn.SetReadDeadline(time.Now().Add(r.timeout))
+	if err != nil {
+		return 0, nil, err
+	}
+	// TODO: check the case when we constantly get something bad (incorect block number and loop instead of failing.
+	_, err = r.conn.WriteToUDP(r.send[:l], r.addr)
+	if err != nil {
+		return 0, nil, err //TODO wrap error
+	}
+	for {
+		c, addr, err := r.conn.ReadFromUDP(r.receive)
+		if err != nil {
+			return 0, nil, err
+		}
+		// TODO: compare addr here?
+		p, err := parsePacket(r.receive[:c])
+		if err != nil {
+			return 0, addr, err
+		}
+		switch p := p.(type) {
+		case pDATA:
+			if p.block() == r.block {
+				return c, addr, nil
+			}
+		case pERROR:
+			return 0, addr, fmt.Errorf("code: %d, message: %s",
+				p.code(), p.message())
+		}
+	}
+}
+
+func (r *receiver) terminate() error {
+	binary.BigEndian.PutUint16(r.send[2:4], r.block)
+	if r.dally {
+		for i := 0; i < 3; i++ {
+			_, _, err := r.receiveDatagram(4)
+			if err != nil {
+				return nil
+			}
+		}
+		return fmt.Errorf("dallying termination failed")
+	} else {
+		_, err := r.conn.WriteToUDP(r.send[:4], r.addr)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func (r *receiver) receiveBlock(b []byte, n uint16, firstBlockOnClient bool) (last bool, e error) {
-	for i := 0; i < 3; i++ {
-		if firstBlockOnClient {
-			rrqPacket := RRQ{r.filename, r.mode}
-			r.conn.WriteToUDP(rrqPacket.Pack(), r.remoteAddr)
-			r.log.Printf("sent RRQ (filename=%s, mode=%s)", r.filename, r.mode)
-		} else {
-			ackPacket := ACK{n - 1}
-			r.conn.WriteToUDP(ackPacket.Pack(), r.remoteAddr)
-			r.log.Printf("sent ACK #%d", n-1)
-		}
-		setDeadlineError := r.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		if setDeadlineError != nil {
-			return false, fmt.Errorf("Could not set UDP timeout: %v", setDeadlineError)
-		}
-		for {
-			c, remoteAddr, readError := r.conn.ReadFromUDP(b)
-			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
-				break
-			} else if e != nil {
-				return false, fmt.Errorf("Error reading UDP packet: %v", e)
-			}
-			packet, e := ParsePacket(b[:c])
-			if e != nil {
-				continue
-			}
-			switch p := packet.(type) {
-			case *DATA:
-				r.log.Printf("got DATA #%d (%d bytes)", p.BlockNumber, len(p.Data))
-				if n == p.BlockNumber {
-					if firstBlockOnClient {
-						r.remoteAddr = remoteAddr
-					}
-					_, e := r.writer.Write(p.Data)
-					if e == nil {
-						return len(p.Data) < BLOCK_SIZE, nil
-					} else {
-						errorPacket := ERROR{1, e.Error()}
-						r.conn.WriteToUDP(errorPacket.Pack(), r.remoteAddr)
-						return false, fmt.Errorf("Handler error: %v", e)
-					}
-				}
-			case *ERROR:
-				return false, fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
-			}
-		}
+func (r *receiver) abort(err error) error {
+	n := packERROR(r.send, 1, err.Error())
+	_, err = r.conn.WriteToUDP(r.send[:n], r.addr)
+	if err != nil {
+		return err
 	}
-	return false, ErrReceiveTimeout
-}
-
-func (r *receiver) terminate(b []byte, n uint16, dallying bool) (e error) {
-	for i := 0; i < 3; i++ {
-		ackPacket := ACK{n}
-		_, e := r.conn.WriteToUDP(ackPacket.Pack(), r.remoteAddr)
-		r.log.Printf("sent ACK #%d", n)
-		if !dallying {
-			return e
-		}
-		setDeadlineError := r.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		if setDeadlineError != nil {
-			return fmt.Errorf("Could not set UDP timeout: %v", setDeadlineError)
-		}
-	l1:
-		for {
-			c, _, readError := r.conn.ReadFromUDP(b)
-			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
-				return nil
-			} else if e != nil {
-				return fmt.Errorf("Error reading UDP packet: %v", e)
-			}
-			packet, e := ParsePacket(b[:c])
-			if e != nil {
-				continue
-			}
-			switch p := packet.(type) {
-			case *DATA:
-				r.log.Printf("got DATA #%d (%d bytes)", p.BlockNumber, len(p.Data))
-				if n == p.BlockNumber {
-					break l1
-				}
-			case *ERROR:
-				fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
-			}
-		}
-	}
-	return fmt.Errorf("Termination error")
+	return nil
 }

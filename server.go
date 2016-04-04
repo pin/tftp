@@ -1,130 +1,147 @@
 package tftp
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
+	"sync"
+	"time"
 )
 
-/*
-Server provides TFTP server functionality. It requires bind address, handlers
-for read and write requests and optional logger.
+func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
+	writeHandler func(filename string, wt io.WriterTo) error) *Server {
+	return &Server{
+		readHandler:  readHandler,
+		writeHandler: writeHandler,
+		timeout:      defaultTimeout,
+	}
+}
 
-	func HandleWrite(filename string, r *io.PipeReader) {
-		buffer := &bytes.Buffer{}
-		c, e := buffer.ReadFrom(r)
-		if e != nil {
-			fmt.Fprintf(os.Stderr, "Can't receive %s: %v\n", filename, e)
-		} else {
-			fmt.Fprintf(os.Stderr, "Received %s (%d bytes)\n", filename, c)
-			...
-		}
-	}
-	func HandleRead(filename string, w *io.PipeWriter) {
-		if fileExists {
-			...
-			c, e := buffer.WriteTo(w)
-			if e != nil {
-				fmt.Fprintf(os.Stderr, "Can't send %s: %v\n", filename, e)
-			} else {
-				fmt.Fprintf(os.Stderr, "Sent %s (%d bytes)\n", filename, c)
-			}
-			w.Close()
-		} else {
-			w.CloseWithError(fmt.Errorf("File not exists: %s", filename))
-		}
-	}
-	...
-	addr, e := net.ResolveUDPAddr("udp", ":69")
-	if e != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", e)
-		os.Exit(1)
-	}
-	log := log.New(os.Stderr, "TFTP", log.Ldate | log.Ltime)
-	s := tftp.Server{addr, HandleWrite, HandleRead, log}
-	e = s.Serve()
-	if e != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", e)
-		os.Exit(1)
-	}
-*/
 type Server struct {
-	BindAddr     *net.UDPAddr
-	ReadHandler  func(filename string, r *io.PipeReader)
-	WriteHandler func(filename string, w *io.PipeWriter)
-	Log          *log.Logger
+	readHandler  func(filename string, rf io.ReaderFrom) error
+	writeHandler func(filename string, wt io.WriterTo) error
+	conn         *net.UDPConn
+	quit         chan chan struct{}
+	wg           sync.WaitGroup
+	timeout      time.Duration
 }
 
-func (s Server) Serve() error {
-	conn, e := net.ListenUDP("udp", s.BindAddr)
-	if e != nil {
-		return e
-	}
-	for {
-		e = s.processRequest(conn)
-		if e != nil {
-			if s.Log != nil {
-				s.Log.Printf("%v\n", e)
-			}
-		}
-	}
+func (s *Server) SetTimeout(t time.Duration) {
+	s.timeout = t
 }
 
-func (s Server) processRequest(conn *net.UDPConn) error {
-	var buffer []byte
-	buffer = make([]byte, MAX_DATAGRAM_SIZE)
-	n, remoteAddr, e := conn.ReadFromUDP(buffer)
-	if e != nil {
-		return fmt.Errorf("Failed to read data from client: %v", e)
+func (s *Server) ListenAndServe(addr string) error {
+	a, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return err
 	}
-	p, e := ParsePacket(buffer[:n])
-	if e != nil {
-		return nil
+	conn, err := net.ListenUDP("udp", a)
+	if err != nil {
+		return err
 	}
-	switch p := p.(type) {
-	case *WRQ:
-		s.Log.Printf("got WRQ (filename=%s, mode=%s)", p.Filename, p.Mode)
-		trasnmissionConn, e := s.transmissionConn()
-		if e != nil {
-			return fmt.Errorf("Could not start transmission: %v", e)
-		}
-		reader, writer := io.Pipe()
-		r := &receiver{remoteAddr, trasnmissionConn, writer, p.Filename, p.Mode, s.Log}
-		go s.ReadHandler(p.Filename, reader)
-		// Writing zero bytes to the pipe just to check for any handler errors early
-		var null_buffer []byte
-		null_buffer = make([]byte, 0)
-		_, e = writer.Write(null_buffer)
-		if e != nil {
-			errorPacket := ERROR{1, e.Error()}
-			trasnmissionConn.WriteToUDP(errorPacket.Pack(), remoteAddr)
-			s.Log.Printf("sent ERROR (code=%d): %s", 1, e.Error())
-			return e
-		}
-		go r.run(true)
-	case *RRQ:
-		s.Log.Printf("got RRQ (filename=%s, mode=%s)", p.Filename, p.Mode)
-		trasnmissionConn, e := s.transmissionConn()
-		if e != nil {
-			return fmt.Errorf("Could not start transmission: %v", e)
-		}
-		reader, writer := io.Pipe()
-		r := &sender{remoteAddr, trasnmissionConn, reader, p.Filename, p.Mode, s.Log}
-		go s.WriteHandler(p.Filename, writer)
-		go r.run(true)
-	}
+	s.Serve(conn)
 	return nil
 }
 
-func (s Server) transmissionConn() (*net.UDPConn, error) {
-	addr, e := net.ResolveUDPAddr("udp", ":0")
-	if e != nil {
-		return nil, e
+func (s *Server) Serve(conn *net.UDPConn) {
+	s.conn = conn
+	s.quit = make(chan chan struct{})
+	for {
+		select {
+		case q := <-s.quit:
+			q <- struct{}{}
+			return
+		default:
+			err := s.processRequest(s.conn)
+			if err != nil {
+				// TODO: add logging handler
+			}
+		}
 	}
-	conn, e := net.ListenUDP("udp", addr)
-	if e != nil {
-		return nil, e
+}
+
+func (s *Server) Shutdown() {
+	s.conn.Close()
+	q := make(chan struct{})
+	s.quit <- q
+	<-q
+	s.wg.Wait()
+}
+
+func (s *Server) processRequest(conn *net.UDPConn) error {
+	var buffer []byte
+	buffer = make([]byte, datagramLength)
+	n, remoteAddr, err := conn.ReadFromUDP(buffer)
+	if err != nil {
+		return fmt.Errorf("reading UDP: %v", err)
 	}
-	return conn, nil
+	p, err := parsePacket(buffer[:n])
+	if err != nil {
+		return err
+	}
+	switch p := p.(type) {
+	case pWRQ:
+		filename, mode, err := unpackRQ(p)
+		if err != nil {
+			return fmt.Errorf("unpack WRQ: %v", err)
+		}
+		//fmt.Printf("got WRQ (filename=%s, mode=%s)\n", filename, mode)
+		transmissionConn, err := transmissionConn()
+		if err != nil {
+			return fmt.Errorf("open transmission: %v", err)
+		}
+		wt := &receiver{
+			send:    make([]byte, datagramLength),
+			receive: make([]byte, datagramLength),
+			conn:    transmissionConn,
+			retry:   &backoff{},
+			timeout: s.timeout,
+			addr:    remoteAddr,
+			mode:    mode,
+		}
+		binary.BigEndian.PutUint16(wt.send[0:2], opACK)
+		s.wg.Add(1)
+		go func() {
+			err := s.writeHandler(filename, wt)
+			if err != nil {
+				wt.abort(err)
+			} else {
+				wt.terminate()
+			}
+			s.wg.Done()
+		}()
+	case pRRQ:
+		filename, mode, err := unpackRQ(p)
+		if err != nil {
+			return fmt.Errorf("unpack RRQ: %v", err)
+		}
+		//fmt.Printf("got RRQ (filename=%s, mode=%s)\n", filename, mode)
+		transmissionConn, err := transmissionConn()
+		if err != nil {
+			return fmt.Errorf("open transmission: %v", err)
+		}
+		rf := &sender{
+			send:    make([]byte, datagramLength),
+			receive: make([]byte, datagramLength),
+			conn:    transmissionConn,
+			retry:   &backoff{},
+			timeout: s.timeout,
+			addr:    remoteAddr,
+			block:   1,
+			mode:    mode,
+		}
+		binary.BigEndian.PutUint16(rf.send[0:2], opDATA)
+		s.wg.Add(1)
+		go func() {
+			err := s.readHandler(filename, rf)
+			if err != nil {
+				rf.abort(err)
+			}
+			s.wg.Done()
+		}()
+	default:
+		return fmt.Errorf("unexpected %T", p)
+	}
+	return nil
 }

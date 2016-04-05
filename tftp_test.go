@@ -252,7 +252,7 @@ func makeTestServer() (*Server, *Client) {
 	// Create server
 	s := NewServer(b.handleRead, b.handleWrite)
 
-	a, err := net.ResolveUDPAddr("udp", ":0")
+	a, err := net.ResolveUDPAddr("udp", "localhost:0")
 	if err != nil {
 		panic(err)
 	}

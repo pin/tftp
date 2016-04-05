@@ -263,6 +263,36 @@ func makeTestServer() (*Server, *Client) {
 	return s, c
 }
 
+func TestNoHandlers(t *testing.T) {
+	s := NewServer(nil, nil)
+
+	a, err := net.ResolveUDPAddr("udp", ":0")
+	if err != nil {
+		panic(err)
+	}
+	conn, err := net.ListenUDP("udp", a)
+	if err != nil {
+		panic(err)
+	}
+
+	go s.Serve(conn)
+
+	c, err := NewClient(conn.LocalAddr().String())
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = c.Send("test", "octet")
+	if err == nil {
+		t.Errorf("error expected")
+	}
+
+	_, err = c.Receive("test", "octet")
+	if err == nil {
+		t.Errorf("error expected")
+	}
+}
+
 func (b *testBackend) handleWrite(filename string, wt io.WriterTo) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()

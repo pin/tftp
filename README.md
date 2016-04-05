@@ -55,6 +55,7 @@ func readHandler(filename string, r io.ReaderFrom) error {
 }
 
 func main() {
+	// use nil in place of handler to disable read or write operations
 	s := tftp.NewServer(readHandler, writeHanlder)
 	s.SetTimeout(5 * time.Second) // optional
 	err := s.ListenAndServe(":69") // blocks until s.Shutdown() is called

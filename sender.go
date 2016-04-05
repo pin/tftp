@@ -5,10 +5,15 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/pin/tftp/netascii"
 )
+
+type OutgoingTransfer interface {
+	SetSize(n int64)
+}
 
 type sender struct {
 	conn    *net.UDPConn
@@ -19,12 +24,29 @@ type sender struct {
 	timeout time.Duration
 	block   uint16
 	mode    string
+	opts    options
+}
+
+func (s *sender) SetSize(n int64) {
+	if s.opts != nil {
+		if _, ok := s.opts["tsize"]; ok {
+			s.opts["tsize"] = strconv.FormatInt(n, 10)
+		}
+	}
 }
 
 func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 	if s.mode == "netascii" {
 		r = netascii.ToReader(r)
 	}
+	if s.opts != nil {
+		err = s.sendOptions()
+		if err != nil {
+			s.abort(err)
+			return 0, err
+		}
+	}
+	binary.BigEndian.PutUint16(s.send[0:2], opDATA)
 	for {
 		l, err := io.ReadFull(r, s.send[4:])
 		n += int64(l)
@@ -47,11 +69,57 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 			s.abort(err)
 			return n, err
 		}
-		if l < blockLength {
+		if l < len(s.send)-4 {
 			return n, nil
 		}
 		s.block++
 	}
+}
+
+func (s *sender) sendOptions() error {
+	for name, value := range s.opts {
+		if name == "blksize" {
+			err := s.setBlockSize(value)
+			if err != nil {
+				delete(s.opts, name)
+				continue
+			}
+		} else if name == "tsize" {
+			if value != "0" {
+				s.opts["tsize"] = value
+			} else {
+				delete(s.opts, name)
+				continue
+			}
+		} else {
+			delete(s.opts, name)
+		}
+	}
+	if len(s.opts) > 0 {
+		m := packOACK(s.send, s.opts)
+		s.block = 0
+		_, err := s.sendWithRetry(m)
+		if err != nil {
+			return err
+		}
+		s.block = 1
+	}
+	return nil
+}
+
+func (s *sender) setBlockSize(blksize string) error {
+	n, err := strconv.Atoi(blksize)
+	if err != nil {
+		return err
+	}
+	if n < 512 {
+		return fmt.Errorf("blkzise too small: %d", n)
+	}
+	if n > 65464 {
+		return fmt.Errorf("blksize too large: %d", n)
+	}
+	s.send = make([]byte, n+4)
+	return nil
 }
 
 func (s *sender) sendWithRetry(l int) (*net.UDPAddr, error) {
@@ -86,10 +154,28 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 		}
 		switch p := p.(type) {
 		case pACK:
-			block := p.block()
-			if s.block == block {
+			if p.block() == s.block {
 				return addr, nil
 			}
+		case pOACK:
+			opts, err := unpackOACK(p)
+			if false && s.block != 1 {
+				continue
+			}
+			if err != nil {
+				s.abort(err)
+				return addr, err
+			}
+			for name, value := range opts {
+				if name == "blksize" {
+					err := s.setBlockSize(value)
+					if err != nil {
+						continue
+					}
+				}
+			}
+			s.block = 0
+			return addr, nil
 		case pERROR:
 			return nil, fmt.Errorf("sending block %d: code=%d, error: %s",
 				s.block, p.code(), p.message())

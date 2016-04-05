@@ -5,10 +5,28 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/pin/tftp/netascii"
 )
+
+type IncomingTransfer interface {
+	Size() (n int64, ok bool)
+}
+
+func (r *receiver) Size() (n int64, ok bool) {
+	if r.opts != nil {
+		if s, ok := r.opts["tsize"]; ok {
+			n, err := strconv.ParseInt(s, 10, 64)
+			if err != nil {
+				return 0, false
+			}
+			return n, true
+		}
+	}
+	return 0, false
+}
 
 type receiver struct {
 	send     []byte
@@ -22,12 +40,21 @@ type receiver struct {
 	autoTerm bool
 	dally    bool
 	mode     string
+	opts     options
 }
 
 func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 	if r.mode == "netascii" {
 		w = netascii.FromWriter(w)
 	}
+	if r.opts != nil {
+		err := r.sendOptions()
+		if err != nil {
+			r.abort(err)
+			return 0, err
+		}
+	}
+	binary.BigEndian.PutUint16(r.send[0:2], opACK)
 	for {
 		if r.l > 0 {
 			l, err := w.Write(r.receive[4:r.l])
@@ -36,7 +63,7 @@ func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 				r.abort(err)
 				return n, err
 			}
-			if r.l-4 < blockLength {
+			if r.l < len(r.receive) {
 				if r.autoTerm {
 					r.terminate()
 				}
@@ -54,12 +81,53 @@ func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 	}
 }
 
-func (s *receiver) receiveWithRetry(l int) (int, *net.UDPAddr, error) {
-	s.retry.Reset()
+func (r *receiver) sendOptions() error {
+	for name, value := range r.opts {
+		if name == "blksize" {
+			err := r.setBlockSize(value)
+			if err != nil {
+				delete(r.opts, name)
+				continue
+			}
+		} else {
+			delete(r.opts, name)
+		}
+	}
+	if len(r.opts) > 0 {
+		m := packOACK(r.send, r.opts)
+		r.block = 1
+		ll, _, err := r.receiveWithRetry(m)
+		if err != nil {
+			r.abort(err)
+			return err
+		}
+		r.block = 1
+		r.l = ll
+	}
+	return nil
+}
+
+func (r *receiver) setBlockSize(blksize string) error {
+	n, err := strconv.Atoi(blksize)
+	if err != nil {
+		return err
+	}
+	if n < 512 {
+		return fmt.Errorf("blkzise too small: %d", n)
+	}
+	if n > 65464 {
+		return fmt.Errorf("blksize too large: %d", n)
+	}
+	r.receive = make([]byte, n+4)
+	return nil
+}
+
+func (r *receiver) receiveWithRetry(l int) (int, *net.UDPAddr, error) {
+	r.retry.Reset()
 	for {
-		n, addr, err := s.receiveDatagram(l)
-		if _, ok := err.(net.Error); ok && s.retry.Count() < 3 {
-			s.retry.Backoff()
+		n, addr, err := r.receiveDatagram(l)
+		if _, ok := err.(net.Error); ok && r.retry.Count() < 3 {
+			r.retry.Backoff()
 			continue
 		}
 		return n, addr, err
@@ -91,6 +159,26 @@ func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
 			if p.block() == r.block {
 				return c, addr, nil
 			}
+		case pOACK:
+			opts, err := unpackOACK(p)
+			if r.block != 1 {
+				continue
+			}
+			if err != nil {
+				r.abort(err)
+				return 0, addr, err
+			}
+			for name, value := range opts {
+				if name == "blksize" {
+					err := r.setBlockSize(value)
+					if err != nil {
+						continue
+					}
+				}
+			}
+			r.block = 0
+			r.opts = opts
+			return 0, addr, nil
 		case pERROR:
 			return 0, addr, fmt.Errorf("code: %d, message: %s",
 				p.code(), p.message())

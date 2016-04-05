@@ -17,6 +17,12 @@ func writeHanlder(filename string, w io.WriterTo) error {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return err
 	}
+	// In case client provides tsize option.
+	if t, ok := wt.(tftp.IncomingTransfer); ok {
+		if n, ok := t.Size(); ok {
+			fmt.Printf("Transfer size: %d\n", n)
+		}
+	}
 	n, err := w.WriteTo(file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -25,11 +31,19 @@ func writeHanlder(filename string, w io.WriterTo) error {
 	fmt.Printf("%d bytes received\n", n)
 	return nil
 }
+
 func readHandler(filename string, r io.ReaderFrom) error {
 	file, err := os.Open(filename)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return err
+	}
+	// Optional tsize support.
+	// Set transfer size before calling ReadFrom.
+	if t, ok := rf.(tftp.OutgoingTransfer); ok {
+		if fi, err := file.Stat(); err == nil {
+			t.SetSize(fi.Size())
+		}
 	}
 	n, err := r.ReadFrom(file)
 	if err != nil {
@@ -69,6 +83,10 @@ r, err := c.Send("foobar.txt", "octet")
 if err != nil {
 	...
 }
+// Optional tsize.
+if ot, ok := r.(tftp.OutgoingTransfer); ok {
+	ot.SetSize(length)
+}
 n, err := r.ReadFrom(file)
 fmt.Printf("%d bytes sent\n", n)
 ```
@@ -87,6 +105,12 @@ if err != nil {
 file, err := os.Create(path)
 if err != nil {
 	...
+}
+// Optional tsize.
+if it, ok := readTransfer.(IncomingTransfer); ok {
+	if n, ok := it.Size(); ok {
+		fmt.Printf("Transfer size: %d\n", n)
+	}
 }
 n, err := w.WriteTo(file)
 if err != nil {

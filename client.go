@@ -1,10 +1,10 @@
 package tftp
 
 import (
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"time"
 )
 
@@ -28,6 +28,8 @@ type Client struct {
 	addr    *net.UDPAddr
 	retry   Retry
 	timeout time.Duration
+	blksize int
+	tsize   bool
 }
 
 func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
@@ -44,14 +46,18 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 		addr:    c.addr,
 		mode:    mode,
 	}
-	n := packRQ(s.send, opWRQ, filename, mode)
+	if c.blksize != 0 {
+		s.opts = make(options)
+		s.opts["blksize"] = strconv.Itoa(c.blksize)
+	}
+	n := packRQ(s.send, opWRQ, filename, mode, s.opts)
 	addr, err := s.sendWithRetry(n)
 	if err != nil {
 		return nil, err // wrap error
 	}
 	s.block++
 	s.addr = addr
-	binary.BigEndian.PutUint16(s.send[0:2], opDATA)
+	s.opts = nil
 	return s, nil
 }
 
@@ -73,7 +79,16 @@ func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 		autoTerm: true,
 		mode:     mode,
 	}
-	n := packRQ(r.send, opRRQ, filename, mode)
+	if c.blksize != 0 || c.tsize {
+		r.opts = make(options)
+	}
+	if c.blksize != 0 {
+		r.opts["blksize"] = strconv.Itoa(c.blksize)
+	}
+	if c.tsize {
+		r.opts["tsize"] = "0"
+	}
+	n := packRQ(r.send, opRRQ, filename, mode, r.opts)
 	r.block++
 	l, addr, err := r.receiveWithRetry(n)
 	if err != nil {
@@ -81,6 +96,5 @@ func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 	}
 	r.l = l
 	r.addr = addr
-	binary.BigEndian.PutUint16(r.send[0:2], opACK)
 	return r, nil
 }

@@ -16,18 +16,27 @@ import (
 
 func TestPackUnpack(t *testing.T) {
 	v := []string{"test-filename/with-subdir"}
+	testOptsList := []options{
+		nil,
+		options{
+			"tsize":   "1234",
+			"blksize": "22",
+		},
+	}
 	for _, filename := range v {
 		for _, mode := range []string{"octet", "netascii"} {
-			packUnpack(t, filename, mode)
+			for _, opts := range testOptsList {
+				packUnpack(t, filename, mode, opts)
+			}
 		}
 	}
 }
 
-func packUnpack(t *testing.T, filename, mode string) {
+func packUnpack(t *testing.T, filename, mode string, opts options) {
 	b := make([]byte, datagramLength)
 	for _, op := range []uint16{opRRQ, opWRQ} {
-		n := packRQ(b, op, filename, mode)
-		f, m, err := unpackRQ(b[:n])
+		n := packRQ(b, op, filename, mode, opts)
+		f, m, o, err := unpackRQ(b[:n])
 		if err != nil {
 			t.Errorf("%s pack/unpack: %v", filename, err)
 		}
@@ -39,6 +48,17 @@ func packUnpack(t *testing.T, filename, mode string) {
 			t.Errorf("mode mismatch (%s): '%x' vs '%x'",
 				mode, m, mode)
 		}
+		if opts != nil {
+			for name, value := range opts {
+				v, ok := o[name]
+				if !ok {
+					t.Errorf("missing %s option", name)
+				}
+				if v != value {
+					t.Errorf("option %s mismatch: '%x' vs '%x'", name, v, value)
+				}
+			}
+		}
 	}
 }
 
@@ -46,6 +66,29 @@ func TestZeroLength(t *testing.T) {
 	s, c := makeTestServer()
 	defer s.Shutdown()
 	testSendReceive(t, c, 0)
+}
+
+func Test900(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	for i := 600; i < 4000; i += 10 {
+		c.blksize = i
+		testSendReceive(t, c, 9000+int64(i))
+	}
+}
+
+func Test1810(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	c.blksize = 1810
+	testSendReceive(t, c, 9000+1810)
+}
+
+func TestTSize(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	c.tsize = true
+	testSendReceive(t, c, 640)
 }
 
 func TestNearBlockLength(t *testing.T) {
@@ -150,6 +193,9 @@ func testSendReceive(t *testing.T, client *Client, length int64) {
 	if err != nil {
 		t.Fatalf("requesting write %s: %v", filename, err)
 	}
+	if ot, ok := writeTransfer.(OutgoingTransfer); ok {
+		ot.SetSize(length)
+	}
 	r := io.LimitReader(newRandReader(rand.NewSource(42)), length)
 	n, err := writeTransfer.ReadFrom(r)
 	if err != nil {
@@ -161,6 +207,14 @@ func testSendReceive(t *testing.T, client *Client, length int64) {
 	readTransfer, err := client.Receive(filename, mode)
 	if err != nil {
 		t.Fatalf("requesting read %s: %v", filename, err)
+	}
+	if it, ok := readTransfer.(IncomingTransfer); ok {
+		if n, ok := it.Size(); ok {
+			fmt.Printf("Transfer size: %d\n", n)
+			if n != length {
+				t.Errorf("tsize mismatch: %d vs %d", n, length)
+			}
+		}
 	}
 	buf := &bytes.Buffer{}
 	n, err = readTransfer.WriteTo(buf)
@@ -217,6 +271,11 @@ func (b *testBackend) handleWrite(filename string, wt io.WriterTo) error {
 		fmt.Fprintf(os.Stderr, "File %s already exists\n", filename)
 		return fmt.Errorf("file already exists")
 	}
+	if t, ok := wt.(IncomingTransfer); ok {
+		if n, ok := t.Size(); ok {
+			fmt.Printf("Transfer size: %d\n", n)
+		}
+	}
 	buf := &bytes.Buffer{}
 	n, err := wt.WriteTo(buf)
 	if err != nil {
@@ -235,6 +294,9 @@ func (b *testBackend) handleRead(filename string, rf io.ReaderFrom) error {
 	if !ok {
 		fmt.Fprintf(os.Stderr, "File %s not found\n", filename)
 		return fmt.Errorf("file not found")
+	}
+	if t, ok := rf.(OutgoingTransfer); ok {
+		t.SetSize(int64(len(bs)))
 	}
 	n, err := rf.ReadFrom(bytes.NewBuffer(bs))
 	if err != nil {

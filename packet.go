@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"strings"
 )
 
 const (
@@ -21,6 +20,8 @@ const (
 	datagramLength = 516
 )
 
+type options map[string]string
+
 // RRQ/WRQ packet
 //
 //  2 bytes     string    1 byte    string    1 byte
@@ -31,28 +32,71 @@ type pRRQ []byte
 type pWRQ []byte
 
 // packRQ returns length of the packet in b
-func packRQ(b []byte, op uint16, filename, mode string) int {
-	binary.BigEndian.PutUint16(b, op)
-	n := copy(b[2:len(b)-10], filename)
-	b[2+n] = 0
-	m := copy(b[3+n:len(b)-2], mode)
-	b[2+n+1+m] = 0
-	return 2 + n + 1 + m + 1
+func packRQ(p []byte, op uint16, filename, mode string, opts options) int {
+	binary.BigEndian.PutUint16(p, op)
+	n := 2
+	n += copy(p[2:len(p)-10], filename)
+	p[n] = 0
+	n++
+	n += copy(p[n:], mode)
+	p[n] = 0
+	n++
+	for name, value := range opts {
+		n += copy(p[n:], name)
+		p[n] = 0
+		n++
+		n += copy(p[n:], value)
+		p[n] = 0
+		n++
+	}
+	return n
 }
 
-func unpackRQ(p []byte) (filename, mode string, err error) {
-	buffer := bytes.NewBuffer(p[2:])
-	s, err := buffer.ReadString(0x0)
-	if err != nil {
-		return s, "", err
+func unpackRQ(p []byte) (filename, mode string, opts options, err error) {
+	bs := bytes.Split(p[2:], []byte{0})
+	if len(bs) < 2 {
+		return "", "", nil, fmt.Errorf("missing filename or mode")
 	}
-	filename = strings.TrimSpace(strings.Trim(s, "\x00"))
-	s, err = buffer.ReadString(0x0)
-	if err != nil {
-		return filename, s, err
+	filename = string(bs[0])
+	mode = string(bs[1])
+	if len(bs) < 4 {
+		return filename, mode, nil, nil
 	}
-	mode = strings.TrimSpace(strings.Trim(s, "\x00"))
-	return filename, mode, nil
+	opts = make(options)
+	for i := 2; i+1 < len(bs); i += 2 {
+		opts[string(bs[i])] = string(bs[i+1])
+	}
+	return filename, mode, opts, nil
+}
+
+// OACK packet
+//
+// +----------+---~~---+---+---~~---+---+---~~---+---+---~~---+---+
+// |  Opcode  |  opt1  | 0 | value1 | 0 |  optN  | 0 | valueN | 0 |
+// +----------+---~~---+---+---~~---+---+---~~---+---+---~~---+---+
+type pOACK []byte
+
+func packOACK(p []byte, opts options) int {
+	binary.BigEndian.PutUint16(p, opOACK)
+	n := 2
+	for name, value := range opts {
+		n += copy(p[n:], name)
+		p[n] = 0
+		n++
+		n += copy(p[n:], value)
+		p[n] = 0
+		n++
+	}
+	return n
+}
+
+func unpackOACK(p []byte) (opts options, err error) {
+	bs := bytes.Split(p[2:], []byte{0})
+	opts = make(options)
+	for i := 0; i+1 < len(bs); i += 2 {
+		opts[string(bs[i])] = string(bs[i+1])
+	}
+	return opts, nil
 }
 
 // ERROR packet
@@ -135,6 +179,11 @@ func parsePacket(p []byte) (interface{}, error) {
 			return nil, fmt.Errorf("short ERROR packet: %d", l)
 		}
 		return pERROR(p), nil
+	case opOACK:
+		if l < 6 {
+			return nil, fmt.Errorf("short OACK packet: %d", l)
+		}
+		return pOACK(p), nil
 	default:
 		return nil, fmt.Errorf("unknown opcode: %d", opcode)
 	}

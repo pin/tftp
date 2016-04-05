@@ -1,7 +1,6 @@
 package tftp
 
 import (
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -82,11 +81,11 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 	}
 	switch p := p.(type) {
 	case pWRQ:
-		filename, mode, err := unpackRQ(p)
+		filename, mode, opts, err := unpackRQ(p)
 		if err != nil {
 			return fmt.Errorf("unpack WRQ: %v", err)
 		}
-		//fmt.Printf("got WRQ (filename=%s, mode=%s)\n", filename, mode)
+		//fmt.Printf("got WRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
 		transmissionConn, err := transmissionConn()
 		if err != nil {
 			return fmt.Errorf("open transmission: %v", err)
@@ -99,8 +98,8 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			timeout: s.timeout,
 			addr:    remoteAddr,
 			mode:    mode,
+			opts:    opts,
 		}
-		binary.BigEndian.PutUint16(wt.send[0:2], opACK)
 		s.wg.Add(1)
 		go func() {
 			err := s.writeHandler(filename, wt)
@@ -112,11 +111,11 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			s.wg.Done()
 		}()
 	case pRRQ:
-		filename, mode, err := unpackRQ(p)
+		filename, mode, opts, err := unpackRQ(p)
 		if err != nil {
 			return fmt.Errorf("unpack RRQ: %v", err)
 		}
-		//fmt.Printf("got RRQ (filename=%s, mode=%s)\n", filename, mode)
+		//fmt.Printf("got RRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
 		transmissionConn, err := transmissionConn()
 		if err != nil {
 			return fmt.Errorf("open transmission: %v", err)
@@ -130,8 +129,8 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			addr:    remoteAddr,
 			block:   1,
 			mode:    mode,
+			opts:    opts,
 		}
-		binary.BigEndian.PutUint16(rf.send[0:2], opDATA)
 		s.wg.Add(1)
 		go func() {
 			err := s.readHandler(filename, rf)

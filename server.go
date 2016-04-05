@@ -102,11 +102,15 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 		}
 		s.wg.Add(1)
 		go func() {
-			err := s.writeHandler(filename, wt)
-			if err != nil {
-				wt.abort(err)
+			if s.writeHandler != nil {
+				err := s.writeHandler(filename, wt)
+				if err != nil {
+					wt.abort(err)
+				} else {
+					wt.terminate()
+				}
 			} else {
-				wt.terminate()
+				wt.abort(fmt.Errorf("server does not support write requests"))
 			}
 			s.wg.Done()
 		}()
@@ -133,9 +137,13 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 		}
 		s.wg.Add(1)
 		go func() {
-			err := s.readHandler(filename, rf)
-			if err != nil {
-				rf.abort(err)
+			if s.readHandler != nil {
+				err := s.readHandler(filename, rf)
+				if err != nil {
+					rf.abort(err)
+				}
+			} else {
+				rf.abort(fmt.Errorf("server does not support read requests"))
 			}
 			s.wg.Done()
 		}()

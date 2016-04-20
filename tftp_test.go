@@ -99,6 +99,15 @@ func TestNearBlockLength(t *testing.T) {
 	}
 }
 
+func TestBlockWrapsAround(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	n := 65535 * 512
+	for i := n - 2; i < n+2; i++ {
+		testSendReceive(t, c, int64(i))
+	}
+}
+
 func TestRandomLength(t *testing.T) {
 	s, c := makeTestServer()
 	defer s.Shutdown()

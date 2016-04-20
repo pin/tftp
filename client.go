@@ -55,7 +55,6 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 	if err != nil {
 		return nil, err // wrap error
 	}
-	s.block++
 	s.addr = addr
 	s.opts = nil
 	return s, nil
@@ -77,6 +76,7 @@ func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 		timeout:  c.timeout,
 		addr:     c.addr,
 		autoTerm: true,
+		block:    1,
 		mode:     mode,
 	}
 	if c.blksize != 0 || c.tsize {
@@ -89,7 +89,6 @@ func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 		r.opts["tsize"] = "0"
 	}
 	n := packRQ(r.send, opRRQ, filename, mode, r.opts)
-	r.block++
 	l, addr, err := r.receiveWithRetry(n)
 	if err != nil {
 		return nil, err

@@ -131,7 +131,6 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			retry:   &backoff{},
 			timeout: s.timeout,
 			addr:    remoteAddr,
-			block:   1,
 			mode:    mode,
 			opts:    opts,
 		}

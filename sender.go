@@ -46,6 +46,7 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 			return 0, err
 		}
 	}
+	s.block = 1 // start data transmission with block 1
 	binary.BigEndian.PutUint16(s.send[0:2], opDATA)
 	for {
 		l, err := io.ReadFull(r, s.send[4:])
@@ -97,12 +98,10 @@ func (s *sender) sendOptions() error {
 	}
 	if len(s.opts) > 0 {
 		m := packOACK(s.send, s.opts)
-		s.block = 0
 		_, err := s.sendWithRetry(m)
 		if err != nil {
 			return err
 		}
-		s.block = 1
 	}
 	return nil
 }
@@ -159,7 +158,7 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 			}
 		case pOACK:
 			opts, err := unpackOACK(p)
-			if false && s.block != 1 {
+			if s.block != 0 {
 				continue
 			}
 			if err != nil {
@@ -174,7 +173,6 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 					}
 				}
 			}
-			s.block = 0
 			return addr, nil
 		case pERROR:
 			return nil, fmt.Errorf("sending block %d: code=%d, error: %s",

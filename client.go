@@ -55,7 +55,6 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 	if err != nil {
 		return nil, err // wrap error
 	}
-	s.block++
 	s.addr = addr
 	s.opts = nil
 	return s, nil

@@ -71,7 +71,7 @@ func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 			}
 		}
 		binary.BigEndian.PutUint16(r.send[2:4], r.block)
-		r.block++
+		r.block++ // send ACK for current block and expect next one
 		ll, _, err := r.receiveWithRetry(4)
 		if err != nil {
 			r.abort(err)
@@ -95,13 +95,12 @@ func (r *receiver) sendOptions() error {
 	}
 	if len(r.opts) > 0 {
 		m := packOACK(r.send, r.opts)
-		r.block = 1
+		r.block = 1 // expect data block number 1
 		ll, _, err := r.receiveWithRetry(m)
 		if err != nil {
 			r.abort(err)
 			return err
 		}
-		r.block = 1
 		r.l = ll
 	}
 	return nil
@@ -176,7 +175,7 @@ func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
 					}
 				}
 			}
-			r.block = 0
+			r.block = 0 // ACK with block number 0
 			r.opts = opts
 			return 0, addr, nil
 		case pERROR:

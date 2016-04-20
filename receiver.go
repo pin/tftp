@@ -138,10 +138,9 @@ func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
 	if err != nil {
 		return 0, nil, err
 	}
-	// TODO: check the case when we constantly get something bad (incorect block number and loop instead of failing.
 	_, err = r.conn.WriteToUDP(r.send[:l], r.addr)
 	if err != nil {
-		return 0, nil, err //TODO wrap error
+		return 0, nil, err
 	}
 	for {
 		c, addr, err := r.conn.ReadFromUDP(r.receive)

@@ -41,7 +41,7 @@ func (s *Server) SetTimeout(t time.Duration) {
 }
 
 // SetRetries sets maximum number of attempts server made to transmit a packet.
-// Default is 5 seconds.
+// Default is 5 attempts.
 func (s *Server) SetRetries(count int) {
 	if count < 1 {
 		s.retries = defaultRetries

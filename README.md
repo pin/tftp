@@ -1,6 +1,8 @@
 TFTP server and client library for Golang
 =========================================
 
+[Package API documentation on GoDoc](https://godoc.org/github.com/pin/tftp)
+
 [![Build Status](https://travis-ci.org/pin/tftp.svg?branch=master)](https://travis-ci.org/pin/tftp)
 
 ``` go

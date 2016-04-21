@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// NewClient creates TFTP client for server on address provided.
 func NewClient(addr string) (*Client, error) {
 	a, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -46,6 +47,7 @@ type Client struct {
 	tsize   bool
 }
 
+// Send starts outgoing file transmission. It returns io.ReaderFrom or error.
 func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 	conn, err := transmissionConn()
 	if err != nil {
@@ -75,6 +77,7 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 	return s, nil
 }
 
+// Receive starts incoming file transmission. It returns io.WriterTo or error.
 func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 	conn, err := transmissionConn()
 	if err != nil {

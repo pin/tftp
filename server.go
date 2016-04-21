@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// NewServer creates TFTP server. It requires two functions to handle
+// read and write requests. In case nil is provided for read or write
+// handler the respective operation is disabled.
 func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 	writeHandler func(filename string, wt io.WriterTo) error) *Server {
 	return &Server{
@@ -46,6 +49,8 @@ func (s *Server) SetRetries(count int) {
 	s.retries = count
 }
 
+// ListenAndServe binds to address provided and start the server.
+// ListenAndServe returns when Shutdown is called.
 func (s *Server) ListenAndServe(addr string) error {
 	a, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -59,6 +64,10 @@ func (s *Server) ListenAndServe(addr string) error {
 	return nil
 }
 
+// Serve starts server provided already opened UDP connecton. It is
+// useful for the case when you want to run server in separate goroutine
+// but still want to be able to handle any errors opening connection.
+// Serve returns when Shutdown is called or connection is closed.
 func (s *Server) Serve(conn *net.UDPConn) {
 	s.conn = conn
 	s.quit = make(chan chan struct{})
@@ -76,6 +85,8 @@ func (s *Server) Serve(conn *net.UDPConn) {
 	}
 }
 
+// Shutdown make server stop listening for new requests, allows
+// server to finish outstanding transfers and stops server.
 func (s *Server) Shutdown() {
 	s.conn.Close()
 	q := make(chan struct{})

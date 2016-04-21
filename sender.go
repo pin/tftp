@@ -141,7 +141,7 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 	}
 	_, err = s.conn.WriteToUDP(s.send[:l], s.addr)
 	if err != nil {
-		return nil, err //TODO wrap error
+		return nil, err
 	}
 	for {
 		n, addr, err := s.conn.ReadFromUDP(s.receive)
@@ -150,7 +150,7 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 		}
 		p, err := parsePacket(s.receive[:n])
 		if err != nil {
-			continue // just ignore
+			continue
 		}
 		switch p := p.(type) {
 		case pACK:
@@ -186,7 +186,7 @@ func (s *sender) abort(err error) error {
 	n := packERROR(s.send, 1, err.Error())
 	_, err = s.conn.WriteToUDP(s.send[:n], s.addr)
 	if err != nil {
-		return err //TODO wrap error
+		return err
 	}
 	return nil
 }

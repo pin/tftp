@@ -70,7 +70,7 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 	n := packRQ(s.send, opWRQ, filename, mode, s.opts)
 	addr, err := s.sendWithRetry(n)
 	if err != nil {
-		return nil, err // wrap error
+		return nil, err
 	}
 	s.addr = addr
 	s.opts = nil

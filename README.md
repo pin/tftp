@@ -82,23 +82,11 @@ TFTP Client
 Uploading file to server:
 
 ```go
-file, err := os.Open(path)
-if err != nil {
-	...
-}
+// TODO: handle errors
 c, err := tftp.NewClient("172.16.4.21:69")
-if err != nil {
-	...
-}
+file, err := os.Open(path)
 c.SetTimeout(5 * time.Second) // optional
 r, err := c.Send("foobar.txt", "octet")
-if err != nil {
-	...
-}
-// Optional tsize.
-if ot, ok := r.(tftp.OutgoingTransfer); ok {
-	ot.SetSize(length)
-}
 n, err := r.ReadFrom(file)
 fmt.Printf("%d bytes sent\n", n)
 ```
@@ -106,18 +94,10 @@ fmt.Printf("%d bytes sent\n", n)
 Downloading file from server:
 
 ```go
+// TODO: handle errors
 c, err := tftp.NewClient("172.16.4.21:69")
-if err != nil {
-	...
-}
 w, err := c.Receive("foobar.txt", "octet")
-if err != nil {
-	...
-}
 file, err := os.Create(path)
-if err != nil {
-	...
-}
 // Optional tsize.
 if it, ok := readTransfer.(IncomingTransfer); ok {
 	if n, ok := it.Size(); ok {
@@ -125,9 +105,6 @@ if it, ok := readTransfer.(IncomingTransfer); ok {
 	}
 }
 n, err := w.WriteTo(file)
-if err != nil {
-	...
-}
 fmt.Printf("%d bytes received\n", n)
 ```
 

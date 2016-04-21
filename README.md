@@ -1,7 +1,18 @@
 TFTP server and client library for Golang
 =========================================
 
+[![GoDoc](https://godoc.org/github.com/pin/tftp?status.svg)](https://godoc.org/github.com/pin/tftp)
 [![Build Status](https://travis-ci.org/pin/tftp.svg?branch=master)](https://travis-ci.org/pin/tftp)
+
+Implements:
+ * [RFC 1350](https://tools.ietf.org/html/rfc1350) - The TFTP Protocol (Revision 2)
+ * [RFC 2347](https://tools.ietf.org/html/rfc2347) - TFTP Option Extension
+ * [RFC 2348](https://tools.ietf.org/html/rfc2348) - TFTP Blocksize Option
+
+Partially implements (tsize server side only):
+ * [RFC 2349](https://tools.ietf.org/html/rfc2349) - TFTP Timeout Interval and Transfer Size Options
+
+Set of features is sufficient for PXE boot support.
 
 ``` go
 import "github.com/pin/tftp"

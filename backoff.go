@@ -1,31 +1,28 @@
 package tftp
 
-import "time"
-
-const (
-	defaultTimeout = 3 * time.Second
-	defaultRetries = 5
+import (
+	"math/rand"
+	"time"
 )
 
-type Retry interface {
-	Reset()
-	Count() int
-	Backoff()
-}
+const (
+	defaultTimeout = 5 * time.Second
+	defaultRetries = 5
+)
 
 type backoff struct {
 	attempt int
 }
 
-func (b *backoff) Reset() {
+func (b *backoff) reset() {
 	b.attempt = 0
 }
 
-func (b *backoff) Count() int {
+func (b *backoff) count() int {
 	return b.attempt
 }
 
-func (b *backoff) Backoff() {
-	time.Sleep(time.Second)
+func (b *backoff) backoff() {
+	time.Sleep(time.Duration(rand.Int63n(int64(time.Second))))
 	b.attempt++
 }

@@ -14,6 +14,7 @@ func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 		readHandler:  readHandler,
 		writeHandler: writeHandler,
 		timeout:      defaultTimeout,
+		retries:      defaultRetries,
 	}
 }
 
@@ -24,10 +25,25 @@ type Server struct {
 	quit         chan chan struct{}
 	wg           sync.WaitGroup
 	timeout      time.Duration
+	retries      int
 }
 
+// SetTimeout sets maximum time server waits for single network round-trip to succeed.
+// Default is 5 seconds.
 func (s *Server) SetTimeout(t time.Duration) {
+	if t <= 0 {
+		s.timeout = defaultTimeout
+	}
 	s.timeout = t
+}
+
+// SetRetries sets maximum number of attempts server made to transmit a packet.
+// Default is 5 seconds.
+func (s *Server) SetRetries(count int) {
+	if count < 1 {
+		s.retries = defaultRetries
+	}
+	s.retries = count
 }
 
 func (s *Server) ListenAndServe(addr string) error {
@@ -96,6 +112,7 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			conn:    transmissionConn,
 			retry:   &backoff{},
 			timeout: s.timeout,
+			retries: s.retries,
 			addr:    remoteAddr,
 			mode:    mode,
 			opts:    opts,
@@ -130,6 +147,7 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			conn:    transmissionConn,
 			retry:   &backoff{},
 			timeout: s.timeout,
+			retries: s.retries,
 			addr:    remoteAddr,
 			mode:    mode,
 			opts:    opts,

@@ -15,19 +15,33 @@ func NewClient(addr string) (*Client, error) {
 	}
 	return &Client{
 		addr:    a,
-		retry:   &backoff{},
 		timeout: defaultTimeout,
+		retries: defaultRetries,
 	}, nil
 }
 
+// SetTimeout sets maximum time client waits for single network round-trip to succeed.
+// Default is 5 seconds.
 func (c *Client) SetTimeout(t time.Duration) {
+	if t <= 0 {
+		c.timeout = defaultTimeout
+	}
 	c.timeout = t
+}
+
+// SetRetries sets maximum number of attempts server made to transmit a packet.
+// Default is 5 seconds.
+func (c *Client) SetRetries(count int) {
+	if count < 1 {
+		c.retries = defaultRetries
+	}
+	c.retries = count
 }
 
 type Client struct {
 	addr    *net.UDPAddr
-	retry   Retry
 	timeout time.Duration
+	retries int
 	blksize int
 	tsize   bool
 }
@@ -41,8 +55,9 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 		send:    make([]byte, datagramLength),
 		receive: make([]byte, datagramLength),
 		conn:    conn,
-		retry:   c.retry,
+		retry:   &backoff{},
 		timeout: c.timeout,
+		retries: c.retries,
 		addr:    c.addr,
 		mode:    mode,
 	}
@@ -72,8 +87,9 @@ func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 		send:     make([]byte, datagramLength),
 		receive:  make([]byte, datagramLength),
 		conn:     conn,
-		retry:    c.retry,
+		retry:    &backoff{},
 		timeout:  c.timeout,
+		retries:  c.retries,
 		addr:     c.addr,
 		autoTerm: true,
 		block:    1,

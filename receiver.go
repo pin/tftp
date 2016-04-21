@@ -34,8 +34,9 @@ type receiver struct {
 	addr     *net.UDPAddr
 	conn     *net.UDPConn
 	block    uint16
-	retry    Retry
+	retry    *backoff
 	timeout  time.Duration
+	retries  int
 	l        int
 	autoTerm bool
 	dally    bool
@@ -122,11 +123,11 @@ func (r *receiver) setBlockSize(blksize string) error {
 }
 
 func (r *receiver) receiveWithRetry(l int) (int, *net.UDPAddr, error) {
-	r.retry.Reset()
+	r.retry.reset()
 	for {
 		n, addr, err := r.receiveDatagram(l)
-		if _, ok := err.(net.Error); ok && r.retry.Count() < 3 {
-			r.retry.Backoff()
+		if _, ok := err.(net.Error); ok && r.retry.count() < r.retries {
+			r.retry.backoff()
 			continue
 		}
 		return n, addr, err

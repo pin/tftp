@@ -20,8 +20,9 @@ type sender struct {
 	addr    *net.UDPAddr
 	send    []byte
 	receive []byte
-	retry   Retry
+	retry   *backoff
 	timeout time.Duration
+	retries int
 	block   uint16
 	mode    string
 	opts    options
@@ -122,11 +123,11 @@ func (s *sender) setBlockSize(blksize string) error {
 }
 
 func (s *sender) sendWithRetry(l int) (*net.UDPAddr, error) {
-	s.retry.Reset()
+	s.retry.reset()
 	for {
 		addr, err := s.sendDatagram(l)
-		if _, ok := err.(net.Error); ok && s.retry.Count() < 3 {
-			s.retry.Backoff()
+		if _, ok := err.(net.Error); ok && s.retry.count() < s.retries {
+			s.retry.backoff()
 			continue
 		}
 		return addr, err

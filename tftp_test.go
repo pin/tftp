@@ -377,6 +377,7 @@ func (r *randReader) Read(p []byte) (n int, err error) {
 func TestServerSendTimeout(t *testing.T) {
 	s, c := makeTestServer()
 	s.SetTimeout(time.Second)
+	s.SetRetries(2)
 	var serverErr error
 	s.readHandler = func(filename string, rf io.ReaderFrom) error {
 		r := io.LimitReader(newRandReader(rand.NewSource(42)), 80000)
@@ -392,7 +393,7 @@ func TestServerSendTimeout(t *testing.T) {
 	}
 	w := &slowWriter{
 		n:     3,
-		delay: 8 * time.Second,
+		delay: 6 * time.Second,
 	}
 	_, _ = readTransfer.WriteTo(w)
 	netErr, ok := serverErr.(net.Error)
@@ -407,6 +408,7 @@ func TestServerSendTimeout(t *testing.T) {
 func TestServerReceiveTimeout(t *testing.T) {
 	s, c := makeTestServer()
 	s.SetTimeout(time.Second)
+	s.SetRetries(2)
 	var serverErr error
 	s.writeHandler = func(filename string, wt io.WriterTo) error {
 		buf := &bytes.Buffer{}
@@ -423,7 +425,7 @@ func TestServerReceiveTimeout(t *testing.T) {
 	r := &slowReader{
 		r:     io.LimitReader(newRandReader(rand.NewSource(42)), 80000),
 		n:     3,
-		delay: 8 * time.Second,
+		delay: 6 * time.Second,
 	}
 	_, _ = writeTransfer.ReadFrom(r)
 	netErr, ok := serverErr.(net.Error)
@@ -438,11 +440,12 @@ func TestServerReceiveTimeout(t *testing.T) {
 func TestClientReceiveTimeout(t *testing.T) {
 	s, c := makeTestServer()
 	c.SetTimeout(time.Second)
+	c.SetRetries(2)
 	s.readHandler = func(filename string, rf io.ReaderFrom) error {
 		r := &slowReader{
 			r:     io.LimitReader(newRandReader(rand.NewSource(42)), 80000),
 			n:     3,
-			delay: 8 * time.Second,
+			delay: 6 * time.Second,
 		}
 		_, err := rf.ReadFrom(r)
 		return err
@@ -468,10 +471,11 @@ func TestClientReceiveTimeout(t *testing.T) {
 func TestClientSendTimeout(t *testing.T) {
 	s, c := makeTestServer()
 	c.SetTimeout(time.Second)
+	c.SetRetries(2)
 	s.writeHandler = func(filename string, wt io.WriterTo) error {
 		w := &slowWriter{
 			n:     3,
-			delay: 8 * time.Second,
+			delay: 6 * time.Second,
 		}
 		_, err := wt.WriteTo(w)
 		return err

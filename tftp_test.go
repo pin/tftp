@@ -252,7 +252,7 @@ func makeTestServer() (*Server, *Client) {
 	// Create server
 	s := NewServer(b.handleRead, b.handleWrite)
 
-	a, err := net.ResolveUDPAddr("udp", ":0")
+	a, err := net.ResolveUDPAddr("udp", "localhost:0")
 	if err != nil {
 		panic(err)
 	}
@@ -393,7 +393,7 @@ func TestServerSendTimeout(t *testing.T) {
 	}
 	w := &slowWriter{
 		n:     3,
-		delay: 6 * time.Second,
+		delay: 8 * time.Second,
 	}
 	_, _ = readTransfer.WriteTo(w)
 	netErr, ok := serverErr.(net.Error)
@@ -425,7 +425,7 @@ func TestServerReceiveTimeout(t *testing.T) {
 	r := &slowReader{
 		r:     io.LimitReader(newRandReader(rand.NewSource(42)), 80000),
 		n:     3,
-		delay: 6 * time.Second,
+		delay: 8 * time.Second,
 	}
 	_, _ = writeTransfer.ReadFrom(r)
 	netErr, ok := serverErr.(net.Error)
@@ -445,7 +445,7 @@ func TestClientReceiveTimeout(t *testing.T) {
 		r := &slowReader{
 			r:     io.LimitReader(newRandReader(rand.NewSource(42)), 80000),
 			n:     3,
-			delay: 6 * time.Second,
+			delay: 8 * time.Second,
 		}
 		_, err := rf.ReadFrom(r)
 		return err
@@ -475,7 +475,7 @@ func TestClientSendTimeout(t *testing.T) {
 	s.writeHandler = func(filename string, wt io.WriterTo) error {
 		w := &slowWriter{
 			n:     3,
-			delay: 6 * time.Second,
+			delay: 8 * time.Second,
 		}
 		_, err := wt.WriteTo(w)
 		return err

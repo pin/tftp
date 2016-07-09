@@ -202,9 +202,6 @@ func testSendReceive(t *testing.T, client *Client, length int64) {
 	if err != nil {
 		t.Fatalf("requesting write %s: %v", filename, err)
 	}
-	if ot, ok := writeTransfer.(OutgoingTransfer); ok {
-		ot.SetSize(length)
-	}
 	r := io.LimitReader(newRandReader(rand.NewSource(42)), length)
 	n, err := writeTransfer.ReadFrom(r)
 	if err != nil {

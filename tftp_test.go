@@ -313,13 +313,12 @@ func (b *testBackend) handleWrite(filename string, wt io.WriterTo) error {
 		}
 	}
 	buf := &bytes.Buffer{}
-	n, err := wt.WriteTo(buf)
+	_, err := wt.WriteTo(buf)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Can't receive %s: %v\n", filename, err)
 		return err
 	}
 	b.m[filename] = buf.Bytes()
-	fmt.Fprintf(os.Stderr, "Received %s (%d bytes)\n", filename, n)
 	return nil
 }
 
@@ -334,12 +333,11 @@ func (b *testBackend) handleRead(filename string, rf io.ReaderFrom) error {
 	if t, ok := rf.(OutgoingTransfer); ok {
 		t.SetSize(int64(len(bs)))
 	}
-	n, err := rf.ReadFrom(bytes.NewBuffer(bs))
+	_, err := rf.ReadFrom(bytes.NewBuffer(bs))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Can't send %s: %v\n", filename, err)
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "Sent %s (%d bytes)\n", filename, n)
 	return nil
 }
 

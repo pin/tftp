@@ -41,6 +41,28 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 		r = netascii.ToReader(r)
 	}
 	if s.opts != nil {
+		// check that tsize is set
+		if ts, ok := s.opts["tsize"]; ok {
+			// check that tsize is not set with SetSize already
+			i, err := strconv.ParseInt(ts, 10, 64)
+			if err == nil && i == 0 {
+				if rs, ok := r.(io.Seeker); ok {
+					pos, err := rs.Seek(0, 1)
+					if err != nil {
+						return 0, err
+					}
+					size, err := rs.Seek(0, 2)
+					if err != nil {
+						return 0, err
+					}
+					s.opts["tsize"] = strconv.FormatInt(size, 10)
+					_, err = rs.Seek(pos, 0)
+					if err != nil {
+						return 0, err
+					}
+				}
+			}
+		}
 		err = s.sendOptions()
 		if err != nil {
 			s.abort(err)

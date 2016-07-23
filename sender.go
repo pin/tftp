@@ -60,6 +60,7 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 					s.abort(err)
 					return n, err
 				}
+				s.conn.Close()
 				return n, nil
 			}
 			s.abort(err)
@@ -72,6 +73,7 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 			return n, err
 		}
 		if l < len(s.send)-4 {
+			s.conn.Close()
 			return n, nil
 		}
 		s.block++

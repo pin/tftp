@@ -67,6 +67,7 @@ func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 			if r.l < len(r.receive) {
 				if r.autoTerm {
 					r.terminate()
+					r.conn.Close()
 				}
 				return n, nil
 			}

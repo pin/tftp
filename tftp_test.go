@@ -77,6 +77,26 @@ func Test900(t *testing.T) {
 	}
 }
 
+func Test1000(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	for i := int64(0); i < 5000; i++ {
+		filename := fmt.Sprintf("length-%d-bytes-%d", i, time.Now().UnixNano())
+		rf, err := c.Send(filename, "octet")
+		if err != nil {
+			t.Fatalf("requesting %s write: %v", filename, err)
+		}
+		r := io.LimitReader(newRandReader(rand.NewSource(i)), i)
+		n, err := rf.ReadFrom(r)
+		if err != nil {
+			t.Fatalf("sending %s: %v", filename, err)
+		}
+		if n != i {
+			t.Errorf("%s length mismatch: %d != %d", filename, n, i)
+		}
+	}
+}
+
 func Test1810(t *testing.T) {
 	s, c := makeTestServer()
 	defer s.Shutdown()

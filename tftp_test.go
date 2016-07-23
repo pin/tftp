@@ -71,7 +71,7 @@ func TestZeroLength(t *testing.T) {
 func Test900(t *testing.T) {
 	s, c := makeTestServer()
 	defer s.Shutdown()
-	for i := 600; i < 4000; i += 10 {
+	for i := 600; i < 4000; i += 1 {
 		c.blksize = i
 		testSendReceive(t, c, 9000+int64(i))
 	}
@@ -249,11 +249,7 @@ func makeTestServer() (*Server, *Client) {
 	// Create server
 	s := NewServer(b.handleRead, b.handleWrite)
 
-	a, err := net.ResolveUDPAddr("udp", "localhost:0")
-	if err != nil {
-		panic(err)
-	}
-	conn, err := net.ListenUDP("udp", a)
+	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
 	if err != nil {
 		panic(err)
 	}
@@ -261,7 +257,7 @@ func makeTestServer() (*Server, *Client) {
 	go s.Serve(conn)
 
 	// Create client for that server
-	c, err := NewClient(conn.LocalAddr().String())
+	c, err := NewClient(localSystem(conn))
 	if err != nil {
 		panic(err)
 	}
@@ -272,18 +268,14 @@ func makeTestServer() (*Server, *Client) {
 func TestNoHandlers(t *testing.T) {
 	s := NewServer(nil, nil)
 
-	a, err := net.ResolveUDPAddr("udp", ":0")
-	if err != nil {
-		panic(err)
-	}
-	conn, err := net.ListenUDP("udp", a)
+	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
 	if err != nil {
 		panic(err)
 	}
 
 	go s.Serve(conn)
 
-	c, err := NewClient(conn.LocalAddr().String())
+	c, err := NewClient(localSystem(conn))
 	if err != nil {
 		panic(err)
 	}

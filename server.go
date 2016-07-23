@@ -113,14 +113,17 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			return fmt.Errorf("unpack WRQ: %v", err)
 		}
 		//fmt.Printf("got WRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
-		transmissionConn, err := transmissionConn()
+		conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+		if err != nil {
+			return err
+		}
 		if err != nil {
 			return fmt.Errorf("open transmission: %v", err)
 		}
 		wt := &receiver{
 			send:    make([]byte, datagramLength),
 			receive: make([]byte, datagramLength),
-			conn:    transmissionConn,
+			conn:    conn,
 			retry:   &backoff{},
 			timeout: s.timeout,
 			retries: s.retries,
@@ -149,14 +152,14 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			return fmt.Errorf("unpack RRQ: %v", err)
 		}
 		//fmt.Printf("got RRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
-		transmissionConn, err := transmissionConn()
+		conn, err := net.ListenUDP(udp, &net.UDPAddr{})
 		if err != nil {
-			return fmt.Errorf("open transmission: %v", err)
+			return err
 		}
 		rf := &sender{
 			send:    make([]byte, datagramLength),
 			receive: make([]byte, datagramLength),
-			conn:    transmissionConn,
+			conn:    conn,
 			retry:   &backoff{},
 			timeout: s.timeout,
 			retries: s.retries,

@@ -185,10 +185,15 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 }
 
 func (s *sender) abort(err error) error {
+	if s.conn == nil {
+		return nil
+	}
 	n := packERROR(s.send, 1, err.Error())
 	_, err = s.conn.WriteToUDP(s.send[:n], s.addr)
 	if err != nil {
 		return err
 	}
+	s.conn.Close()
+	s.conn = nil
 	return nil
 }

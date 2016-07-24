@@ -139,11 +139,11 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 					wt.abort(err)
 				} else {
 					wt.terminate()
+					wt.conn.Close()
 				}
 			} else {
 				wt.abort(fmt.Errorf("server does not support write requests"))
 			}
-			wt.conn.Close()
 			s.wg.Done()
 		}()
 	case pRRQ:

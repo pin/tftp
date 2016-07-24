@@ -67,6 +67,7 @@ func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 			if r.l < len(r.receive) {
 				if r.autoTerm {
 					r.terminate()
+					r.conn.Close()
 				}
 				return n, nil
 			}
@@ -205,10 +206,15 @@ func (r *receiver) terminate() error {
 }
 
 func (r *receiver) abort(err error) error {
+	if r.conn == nil {
+		return nil
+	}
 	n := packERROR(r.send, 1, err.Error())
 	_, err = r.conn.WriteToUDP(r.send[:n], r.addr)
 	if err != nil {
 		return err
 	}
+	r.conn.Close()
+	r.conn = nil
 	return nil
 }

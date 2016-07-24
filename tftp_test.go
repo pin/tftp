@@ -71,9 +71,29 @@ func TestZeroLength(t *testing.T) {
 func Test900(t *testing.T) {
 	s, c := makeTestServer()
 	defer s.Shutdown()
-	for i := 600; i < 4000; i += 10 {
+	for i := 600; i < 4000; i += 1 {
 		c.blksize = i
 		testSendReceive(t, c, 9000+int64(i))
+	}
+}
+
+func Test1000(t *testing.T) {
+	s, c := makeTestServer()
+	defer s.Shutdown()
+	for i := int64(0); i < 5000; i++ {
+		filename := fmt.Sprintf("length-%d-bytes-%d", i, time.Now().UnixNano())
+		rf, err := c.Send(filename, "octet")
+		if err != nil {
+			t.Fatalf("requesting %s write: %v", filename, err)
+		}
+		r := io.LimitReader(newRandReader(rand.NewSource(i)), i)
+		n, err := rf.ReadFrom(r)
+		if err != nil {
+			t.Fatalf("sending %s: %v", filename, err)
+		}
+		if n != i {
+			t.Errorf("%s length mismatch: %d != %d", filename, n, i)
+		}
 	}
 }
 
@@ -249,11 +269,7 @@ func makeTestServer() (*Server, *Client) {
 	// Create server
 	s := NewServer(b.handleRead, b.handleWrite)
 
-	a, err := net.ResolveUDPAddr("udp", "localhost:0")
-	if err != nil {
-		panic(err)
-	}
-	conn, err := net.ListenUDP("udp", a)
+	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
 	if err != nil {
 		panic(err)
 	}
@@ -261,7 +277,7 @@ func makeTestServer() (*Server, *Client) {
 	go s.Serve(conn)
 
 	// Create client for that server
-	c, err := NewClient(conn.LocalAddr().String())
+	c, err := NewClient(localSystem(conn))
 	if err != nil {
 		panic(err)
 	}
@@ -272,18 +288,14 @@ func makeTestServer() (*Server, *Client) {
 func TestNoHandlers(t *testing.T) {
 	s := NewServer(nil, nil)
 
-	a, err := net.ResolveUDPAddr("udp", ":0")
-	if err != nil {
-		panic(err)
-	}
-	conn, err := net.ListenUDP("udp", a)
+	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
 	if err != nil {
 		panic(err)
 	}
 
 	go s.Serve(conn)
 
-	c, err := NewClient(conn.LocalAddr().String())
+	c, err := NewClient(localSystem(conn))
 	if err != nil {
 		panic(err)
 	}

@@ -11,6 +11,11 @@ import (
 	"github.com/pin/tftp/netascii"
 )
 
+// IncomingTransfer allows to obtain size of incoming file in case it
+// is received with tsize option (see RFC2349).
+//
+// To tell the zero-sized file transfer from no tsize provided use
+// second boolean "ok" retrun value.
 type IncomingTransfer interface {
 	Size() (n int64, ok bool)
 }

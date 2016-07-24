@@ -11,6 +11,17 @@ import (
 	"github.com/pin/tftp/netascii"
 )
 
+// OutgoingTransfer is an interface to set outgoing transfer size
+// (tsize option: RFC2349) manually in server write transfer
+// handler.
+//
+// It is not necessary in most cases and when io.Reader provided to
+// ReadFrom satisfies also io.Seeker (e.g. os.File) transfer size will
+// be determined automatically. Seek will not be attempted in case
+// transfer size option is set with SetSize.
+//
+// Value provided will be used only if SetSize called before ReadFrom
+// and only on in server read handler.
 type OutgoingTransfer interface {
 	SetSize(n int64)
 }

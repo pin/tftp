@@ -257,6 +257,47 @@ func testSendReceive(t *testing.T, client *Client, length int64) {
 	}
 }
 
+func TestSendTsizeFromSeek(t *testing.T) {
+	// create read-only server
+	s := NewServer(func(filename string, rf io.ReaderFrom) error {
+		b := make([]byte, 100)
+		rr := newRandReader(rand.NewSource(42))
+		rr.Read(b)
+		// bytes.Reader implements io.Seek
+		r := bytes.NewReader(b)
+		_, err := rf.ReadFrom(r)
+		if err != nil {
+			t.Errorf("sending bytes: %v", err)
+		}
+		return nil
+	}, nil)
+
+	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+	if err != nil {
+		t.Fatalf("listening: %v", err)
+	}
+
+	go s.Serve(conn)
+	defer s.Shutdown()
+
+	c, _ := NewClient(localSystem(conn))
+	c.tsize = true
+	r, _ := c.Receive("f", "octet")
+	var size int64
+	if t, ok := r.(IncomingTransfer); ok {
+		if n, ok := t.Size(); ok {
+			size = n
+			fmt.Printf("Transfer size: %d\n", n)
+		}
+	}
+
+	if size != 100 {
+		t.Errorf("size expected: 100, got %d", size)
+	}
+
+	r.WriteTo(ioutil.Discard)
+}
+
 type testBackend struct {
 	m  map[string][]byte
 	mu sync.Mutex

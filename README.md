@@ -18,50 +18,45 @@ Set of features is sufficient for PXE boot support.
 import "github.com/pin/tftp"
 ```
 
+The package is cohesive to Golang `io`. Particularly it implements
+`io.ReaderFrom` and `io.WriterTo` interfaces. That allows efficient data
+transmission without unnecessary memory copying and allocations.
+
+
 TFTP Server
 -----------
 
 ```go
-func writeHanlder(filename string, w io.WriterTo) error {
-	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		return err
-	}
-	// In case client provides tsize option.
-	if t, ok := wt.(tftp.IncomingTransfer); ok {
-		if n, ok := t.Size(); ok {
-			fmt.Printf("Transfer size: %d\n", n)
-		}
-	}
-	n, err := w.WriteTo(file)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		return err
-	}
-	fmt.Printf("%d bytes received\n", n)
-	return nil
-}
 
-func readHandler(filename string, r io.ReaderFrom) error {
+// readHandler is called when client starts file download from server
+func readHandler(filename string, rf io.ReaderFrom) error {
 	file, err := os.Open(filename)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return err
 	}
-	// Optional tsize support.
-	// Set transfer size before calling ReadFrom.
-	if t, ok := rf.(tftp.OutgoingTransfer); ok {
-		if fi, err := file.Stat(); err == nil {
-			t.SetSize(fi.Size())
-		}
-	}
-	n, err := r.ReadFrom(file)
+	n, err := rf.ReadFrom(file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return err
 	}
 	fmt.Printf("%d bytes sent\n", n)
+	return nil
+}
+
+// writeHandler is called when client starts file upload to server
+func writeHanlder(filename string, wt io.WriterTo) error {
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return err
+	}
+	n, err := wt.WriteTo(file)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return err
+	}
+	fmt.Printf("%d bytes received\n", n)
 	return nil
 }
 
@@ -79,38 +74,61 @@ func main() {
 
 TFTP Client
 -----------
-Uploading file to server:
+Upload file to server:
 
 ```go
-// TODO: handle errors
 c, err := tftp.NewClient("172.16.4.21:69")
 file, err := os.Open(path)
 c.SetTimeout(5 * time.Second) // optional
-r, err := c.Send("foobar.txt", "octet")
-n, err := r.ReadFrom(file)
+rf, err := c.Send("foobar.txt", "octet")
+n, err := rf.ReadFrom(file)
 fmt.Printf("%d bytes sent\n", n)
 ```
 
-Downloading file from server:
+Download file from server:
 
 ```go
-// TODO: handle errors
 c, err := tftp.NewClient("172.16.4.21:69")
-w, err := c.Receive("foobar.txt", "octet")
+wt, err := c.Receive("foobar.txt", "octet")
 file, err := os.Create(path)
-// Optional tsize.
-if it, ok := readTransfer.(IncomingTransfer); ok {
-	if n, ok := it.Size(); ok {
-		fmt.Printf("Transfer size: %d\n", n)
-	}
+// Optionally obtain transfer size before actual data.
+if n, ok := wt.(IncomingTransfer).Size(); ok {
+	fmt.Printf("Transfer size: %d\n", n)
 }
-n, err := w.WriteTo(file)
+n, err := wt.WriteTo(file)
 fmt.Printf("%d bytes received\n", n)
 ```
 
-Legacy API
-----------
-API has been improved in non-backward-compartible way recently.
-Please use `v1` release in legacy code.
+Note: please handle errors better :)
 
-Legacy code should import http://gopkg.in/pin/tftp.v1
+TSize option
+------------
+
+PXE boot ROM often expects tsize option support from a server: client
+(e.g. computer that boots over the network) wants to know size of a
+download before the actual data comes. Server has to obtain stream
+size and send it to a client.
+
+Often it will happen automatically because TFTP library tries to check
+if `io.Reader` provided to `ReadFrom` method also satisfies
+`io.Seeker` interface (`os.File` for instance) and uses `Seek` to
+determine file size.
+
+In case `io.Reader` you provide to `ReadFrom` in read handler does not
+satisfy `io.Seeker` interface or you do not want TFTP library to call
+`Seek` on your reader but still want to respond with tsize option
+during outgoing request you can use an `OutgoingTransfer` interface:
+
+```go
+
+func readHandler(filename string, rf io.ReaderFrom) error {
+	...
+	// Set transfer size before calling ReadFrom.
+	rf.(tftp.OutgoingTransfer).SetSize(myFileSize)
+	...
+	// ReadFrom ...
+
+```
+
+Similarly, it is possible to obtain size of a file that is about to be
+received using `IncomingTransfer` interface (see `Size` method).

@@ -9,8 +9,9 @@ import (
 )
 
 // NewServer creates TFTP server. It requires two functions to handle
-// read and write requests. In case nil is provided for read or write
-// handler the respective operation is disabled.
+// read and write requests.
+// In case nil is provided for read or write handler the respective
+// operation is disabled.
 func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 	writeHandler func(filename string, wt io.WriterTo) error) *Server {
 	return &Server{
@@ -31,7 +32,8 @@ type Server struct {
 	retries      int
 }
 
-// SetTimeout sets maximum time server waits for single network round-trip to succeed.
+// SetTimeout sets maximum time server waits for single network
+// round-trip to succeed.
 // Default is 5 seconds.
 func (s *Server) SetTimeout(t time.Duration) {
 	if t <= 0 {
@@ -40,7 +42,8 @@ func (s *Server) SetTimeout(t time.Duration) {
 	s.timeout = t
 }
 
-// SetRetries sets maximum number of attempts server made to transmit a packet.
+// SetRetries sets maximum number of attempts server made to transmit a
+// packet.
 // Default is 5 attempts.
 func (s *Server) SetRetries(count int) {
 	if count < 1 {

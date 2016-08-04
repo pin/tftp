@@ -88,7 +88,7 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 		if err != nil && err != io.ErrUnexpectedEOF {
 			if err == io.EOF {
 				binary.BigEndian.PutUint16(s.send[2:4], s.block)
-				_, err = s.sendWithRetry(4)
+				err = s.sendWithRetry(4)
 				if err != nil {
 					s.abort(err)
 					return n, err
@@ -100,7 +100,7 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 			return n, err
 		}
 		binary.BigEndian.PutUint16(s.send[2:4], s.block)
-		_, err = s.sendWithRetry(4 + l)
+		err = s.sendWithRetry(4 + l)
 		if err != nil {
 			s.abort(err)
 			return n, err
@@ -134,7 +134,7 @@ func (s *sender) sendOptions() error {
 	}
 	if len(s.opts) > 0 {
 		m := packOACK(s.send, s.opts)
-		_, err := s.sendWithRetry(m)
+		err := s.sendWithRetry(m)
 		if err != nil {
 			return err
 		}
@@ -157,31 +157,31 @@ func (s *sender) setBlockSize(blksize string) error {
 	return nil
 }
 
-func (s *sender) sendWithRetry(l int) (*net.UDPAddr, error) {
+func (s *sender) sendWithRetry(l int) error {
 	s.retry.reset()
 	for {
-		addr, err := s.sendDatagram(l)
+		err := s.sendDatagram(l)
 		if _, ok := err.(net.Error); ok && s.retry.count() < s.retries {
 			s.retry.backoff()
 			continue
 		}
-		return addr, err
+		return err
 	}
 }
 
-func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
+func (s *sender) sendDatagram(l int) error {
 	err := s.conn.SetReadDeadline(time.Now().Add(s.timeout))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	_, err = s.conn.WriteToUDP(s.send[:l], s.addr)
+	_, err = s.conn.Write(s.send[:l])
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for {
-		n, addr, err := s.conn.ReadFromUDP(s.receive)
+		n, _, err := s.conn.ReadFromUDP(s.receive)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		p, err := parsePacket(s.receive[:n])
 		if err != nil {
@@ -190,7 +190,7 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 		switch p := p.(type) {
 		case pACK:
 			if p.block() == s.block {
-				return addr, nil
+				return nil
 			}
 		case pOACK:
 			opts, err := unpackOACK(p)
@@ -199,7 +199,7 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 			}
 			if err != nil {
 				s.abort(err)
-				return addr, err
+				return err
 			}
 			for name, value := range opts {
 				if name == "blksize" {
@@ -209,9 +209,9 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 					}
 				}
 			}
-			return addr, nil
+			return nil
 		case pERROR:
-			return nil, fmt.Errorf("sending block %d: code=%d, error: %s",
+			return fmt.Errorf("sending block %d: code=%d, error: %s",
 				s.block, p.code(), p.message())
 		}
 	}

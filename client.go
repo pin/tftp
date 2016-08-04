@@ -68,11 +68,10 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 		s.opts["blksize"] = strconv.Itoa(c.blksize)
 	}
 	n := packRQ(s.send, opWRQ, filename, mode, s.opts)
-	addr, err := s.sendWithRetry(n)
+	err = s.sendWithRetry(n)
 	if err != nil {
 		return nil, err
 	}
-	s.addr = addr
 	s.opts = nil
 	return s, nil
 }

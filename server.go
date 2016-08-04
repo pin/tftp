@@ -116,7 +116,7 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			return fmt.Errorf("unpack WRQ: %v", err)
 		}
 		//fmt.Printf("got WRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
-		conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+		conn, err := net.DialUDP("udp", nil, remoteAddr)
 		if err != nil {
 			return err
 		}
@@ -155,7 +155,7 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			return fmt.Errorf("unpack RRQ: %v", err)
 		}
 		//fmt.Printf("got RRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
-		conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+		conn, err := net.DialUDP("udp", nil, remoteAddr)
 		if err != nil {
 			return err
 		}

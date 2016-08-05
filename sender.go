@@ -29,6 +29,7 @@ type OutgoingTransfer interface {
 type sender struct {
 	conn    *net.UDPConn
 	addr    *net.UDPAddr
+	tid     int
 	send    []byte
 	receive []byte
 	retry   *backoff
@@ -183,10 +184,14 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 		if err != nil {
 			return nil, err
 		}
+		if !addr.IP.Equal(s.addr.IP) || (s.tid != 0 && addr.Port != s.tid) {
+			continue
+		}
 		p, err := parsePacket(s.receive[:n])
 		if err != nil {
 			continue
 		}
+		s.tid = addr.Port
 		switch p := p.(type) {
 		case pACK:
 			if p.block() == s.block {

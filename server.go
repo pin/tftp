@@ -162,6 +162,7 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 		rf := &sender{
 			send:    make([]byte, datagramLength),
 			receive: make([]byte, datagramLength),
+			tid:     remoteAddr.Port,
 			conn:    conn,
 			retry:   &backoff{},
 			timeout: s.timeout,

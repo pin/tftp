@@ -18,7 +18,10 @@ import (
 // second boolean "ok" retrun value.
 type IncomingTransfer interface {
 	Size() (n int64, ok bool)
+	RemoteAddr() net.UDPAddr
 }
+
+func (r *receiver) RemoteAddr() net.UDPAddr { return *r.addr }
 
 func (r *receiver) Size() (n int64, ok bool) {
 	if r.opts != nil {

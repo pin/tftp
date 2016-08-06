@@ -24,6 +24,7 @@ import (
 // and only on in server read handler.
 type OutgoingTransfer interface {
 	SetSize(n int64)
+	RemoteAddr() net.UDPAddr
 }
 
 type sender struct {
@@ -38,6 +39,8 @@ type sender struct {
 	mode    string
 	opts    options
 }
+
+func (s *sender) RemoteAddr() net.UDPAddr { return *s.addr }
 
 func (s *sender) SetSize(n int64) {
 	if s.opts != nil {

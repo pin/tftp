@@ -38,8 +38,9 @@ type Server struct {
 func (s *Server) SetTimeout(t time.Duration) {
 	if t <= 0 {
 		s.timeout = defaultTimeout
+	} else {
+		s.timeout = t
 	}
-	s.timeout = t
 }
 
 // SetRetries sets maximum number of attempts server made to transmit a
@@ -48,8 +49,9 @@ func (s *Server) SetTimeout(t time.Duration) {
 func (s *Server) SetRetries(count int) {
 	if count < 1 {
 		s.retries = defaultRetries
+	} else {
+		s.retries = count
 	}
-	s.retries = count
 }
 
 // ListenAndServe binds to address provided and start the server.

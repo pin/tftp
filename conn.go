@@ -30,7 +30,6 @@ func determineLocalhost() string {
 
 	go func() {
 		port, _ := strconv.Atoi(lport)
-		fmt.Println("connecting...")
 		conn, err := net.DialTCP("tcp6", &net.TCPAddr{}, &net.TCPAddr{Port: port})
 		if err == nil {
 			conn.Close()

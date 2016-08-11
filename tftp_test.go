@@ -277,7 +277,7 @@ func TestSendTsizeFromSeek(t *testing.T) {
 		panic(fmt.Sprintf("can't find loopback interface: %v", err))
 	}
 
-	conn, err := net.ListenUDP(udp, &net.UDPAddr{IP: ip})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: ip})
 	if err != nil {
 		t.Fatalf("listening: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestSendTsizeFromSeek(t *testing.T) {
 	go s.Serve(conn)
 	defer s.Shutdown()
 
-	c, _ := NewClient(localSystem(conn))
+	c, _ := NewClient(conn.LocalAddr().String())
 	c.tsize = true
 	r, _ := c.Receive("f", "octet")
 	var size int64
@@ -353,7 +353,7 @@ func makeTestServer() (*Server, *Client) {
 		panic(fmt.Sprintf("can't find loopback interface: %v", err))
 	}
 
-	conn, err := net.ListenUDP(udp, &net.UDPAddr{IP: ip})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: ip})
 	if err != nil {
 		panic(err)
 	}
@@ -361,7 +361,7 @@ func makeTestServer() (*Server, *Client) {
 	go s.Serve(conn)
 
 	// Create client for that server
-	c, err := NewClient(localSystem(conn))
+	c, err := NewClient(conn.LocalAddr().String())
 	if err != nil {
 		panic(err)
 	}
@@ -372,14 +372,14 @@ func makeTestServer() (*Server, *Client) {
 func TestNoHandlers(t *testing.T) {
 	s := NewServer(nil, nil)
 
-	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		panic(err)
 	}
 
 	go s.Serve(conn)
 
-	c, err := NewClient(localSystem(conn))
+	c, err := NewClient(conn.LocalAddr().String())
 	if err != nil {
 		panic(err)
 	}

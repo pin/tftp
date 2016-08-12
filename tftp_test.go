@@ -272,7 +272,12 @@ func TestSendTsizeFromSeek(t *testing.T) {
 		return nil
 	}, nil)
 
-	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+	ip, err := loopbackIP()
+	if err != nil {
+		panic(fmt.Sprintf("can't find loopback interface: %v", err))
+	}
+
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: ip})
 	if err != nil {
 		t.Fatalf("listening: %v", err)
 	}
@@ -280,7 +285,7 @@ func TestSendTsizeFromSeek(t *testing.T) {
 	go s.Serve(conn)
 	defer s.Shutdown()
 
-	c, _ := NewClient(localSystem(conn))
+	c, _ := NewClient(conn.LocalAddr().String())
 	c.tsize = true
 	r, _ := c.Receive("f", "octet")
 	var size int64
@@ -303,6 +308,39 @@ type testBackend struct {
 	mu sync.Mutex
 }
 
+func loopbackIP() (net.IP, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			// interface is down
+			continue
+		}
+		if iface.Flags&net.FlagLoopback == 0 {
+			// non-loopback interface
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return nil, err
+		}
+		for _, addr := range addrs {
+
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			return ip, nil
+		}
+	}
+	return nil, nil
+}
+
 func makeTestServer() (*Server, *Client) {
 	b := &testBackend{}
 	b.m = make(map[string][]byte)
@@ -310,7 +348,12 @@ func makeTestServer() (*Server, *Client) {
 	// Create server
 	s := NewServer(b.handleRead, b.handleWrite)
 
-	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+	ip, err := loopbackIP()
+	if err != nil {
+		panic(fmt.Sprintf("can't find loopback interface: %v", err))
+	}
+
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: ip})
 	if err != nil {
 		panic(err)
 	}
@@ -318,7 +361,7 @@ func makeTestServer() (*Server, *Client) {
 	go s.Serve(conn)
 
 	// Create client for that server
-	c, err := NewClient(localSystem(conn))
+	c, err := NewClient(conn.LocalAddr().String())
 	if err != nil {
 		panic(err)
 	}
@@ -329,14 +372,14 @@ func makeTestServer() (*Server, *Client) {
 func TestNoHandlers(t *testing.T) {
 	s := NewServer(nil, nil)
 
-	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		panic(err)
 	}
 
 	go s.Serve(conn)
 
-	c, err := NewClient(localSystem(conn))
+	c, err := NewClient(conn.LocalAddr().String())
 	if err != nil {
 		panic(err)
 	}

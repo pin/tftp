@@ -11,13 +11,15 @@ import (
 	"github.com/pin/tftp/netascii"
 )
 
-// IncomingTransfer allows to obtain size of incoming file in case it
-// is received with tsize option (see RFC2349).
-//
-// To tell the zero-sized file transfer from no tsize provided use
-// second boolean "ok" retrun value.
+// IncomingTransfer provides methods that expose information associated with
+// an incoming transfer.
 type IncomingTransfer interface {
+	// Size returns the size of an incoming file if the request included the
+	// tsize option (see RFC2349).  To differentiate a zero-sized file transfer
+	// from a request without tsize use the second boolean "ok" return value.
 	Size() (n int64, ok bool)
+
+	// RemoteAddr returns the remote peer's IP address and port.
 	RemoteAddr() net.UDPAddr
 }
 

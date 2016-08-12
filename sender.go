@@ -11,19 +11,22 @@ import (
 	"github.com/pin/tftp/netascii"
 )
 
-// OutgoingTransfer is an interface to set outgoing transfer size
-// (tsize option: RFC2349) manually in server write transfer
-// handler.
-//
-// It is not necessary in most cases and when io.Reader provided to
-// ReadFrom satisfies also io.Seeker (e.g. os.File) transfer size will
-// be determined automatically. Seek will not be attempted in case
-// transfer size option is set with SetSize.
-//
-// Value provided will be used only if SetSize called before ReadFrom
-// and only on in server read handler.
+// OutgoingTransfer provides methods to set the outgoing transfer size and
+// retrieve the remote address of the peer.
 type OutgoingTransfer interface {
+	// SetSize is used to set the outgoing transfer size (tsize option: RFC2349)
+	// manually in a server write transfer handler.
+	//
+	// It is not necessary in most cases; when the io.Reader provided to
+	// ReadFrom also satisfies io.Seeker (e.g. os.File) the transfer size will
+	// be determined automatically. Seek will not be attempted when the
+	// transfer size option is set with SetSize.
+	//
+	// The value provided will be used only if SetSize is called before ReadFrom
+	// and only on in a server read handler.
 	SetSize(n int64)
+
+	// RemoteAddr returns the remote peer's IP address and port.
 	RemoteAddr() net.UDPAddr
 }
 

@@ -8,11 +8,56 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"testing/iotest"
 	"time"
 )
+
+var localhost string = determineLocalhost()
+
+func determineLocalhost() string {
+	l, err := net.ListenTCP("tcp", nil)
+	if err != nil {
+		panic(fmt.Sprintf("ListenTCP error: %s", err))
+	}
+	_, lport, _ := net.SplitHostPort(l.Addr().String())
+	defer l.Close()
+
+	lo := make(chan string)
+
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				break
+			}
+			conn.Close()
+		}
+	}()
+
+	go func() {
+		port, _ := strconv.Atoi(lport)
+		for _, af := range []string{"tcp6", "tcp4"} {
+			conn, err := net.DialTCP(af, &net.TCPAddr{}, &net.TCPAddr{Port: port})
+			if err == nil {
+				conn.Close()
+				host, _, _ := net.SplitHostPort(conn.LocalAddr().String())
+				lo <- host
+				return
+			}
+		}
+		panic("could not determine address family")
+	}()
+
+	return <-lo
+}
+
+func localSystem(c *net.UDPConn) string {
+	_, port, _ := net.SplitHostPort(c.LocalAddr().String())
+	return net.JoinHostPort(localhost, port)
+}
 
 func TestPackUnpack(t *testing.T) {
 	v := []string{"test-filename/with-subdir"}
@@ -272,7 +317,7 @@ func TestSendTsizeFromSeek(t *testing.T) {
 		return nil
 	}, nil)
 
-	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		t.Fatalf("listening: %v", err)
 	}
@@ -310,7 +355,7 @@ func makeTestServer() (*Server, *Client) {
 	// Create server
 	s := NewServer(b.handleRead, b.handleWrite)
 
-	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		panic(err)
 	}
@@ -329,7 +374,7 @@ func makeTestServer() (*Server, *Client) {
 func TestNoHandlers(t *testing.T) {
 	s := NewServer(nil, nil)
 
-	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		panic(err)
 	}

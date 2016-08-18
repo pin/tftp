@@ -156,7 +156,7 @@ func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
 			return 0, nil, err
 		}
 		if !addr.IP.Equal(r.addr.IP) || (r.tid != 0 && addr.Port != r.tid) {
-			return 0, nil, err
+			continue
 		}
 		p, err := parsePacket(r.receive[:c])
 		if err != nil {

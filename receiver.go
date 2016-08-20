@@ -42,6 +42,7 @@ type receiver struct {
 	send     []byte
 	receive  []byte
 	addr     *net.UDPAddr
+	tid      int
 	conn     *net.UDPConn
 	block    uint16
 	retry    *backoff
@@ -159,11 +160,14 @@ func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
 		if err != nil {
 			return 0, nil, err
 		}
-		// TODO: compare addr here?
+		if !addr.IP.Equal(r.addr.IP) || (r.tid != 0 && addr.Port != r.tid) {
+			continue
+		}
 		p, err := parsePacket(r.receive[:c])
 		if err != nil {
 			return 0, addr, err
 		}
+		r.tid = addr.Port
 		switch p := p.(type) {
 		case pDATA:
 			if p.block() == r.block {

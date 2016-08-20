@@ -49,7 +49,7 @@ type Client struct {
 
 // Send starts outgoing file transmission. It returns io.ReaderFrom or error.
 func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
-	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 
 // Receive starts incoming file transmission. It returns io.WriterTo or error.
 func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
-	conn, err := net.ListenUDP(udp, &net.UDPAddr{})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		return nil, err
 	}

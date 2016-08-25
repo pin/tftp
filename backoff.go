@@ -10,8 +10,11 @@ const (
 	defaultRetries = 5
 )
 
+type backoffFunc func(int) time.Duration
+
 type backoff struct {
 	attempt int
+	handler backoffFunc
 }
 
 func (b *backoff) reset() {
@@ -23,6 +26,10 @@ func (b *backoff) count() int {
 }
 
 func (b *backoff) backoff() {
-	time.Sleep(time.Duration(rand.Int63n(int64(time.Second))))
+	if b.handler == nil {
+		time.Sleep(time.Duration(rand.Int63n(int64(time.Second))))
+	} else {
+		time.Sleep(b.handler(b.attempt))
+	}
 	b.attempt++
 }

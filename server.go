@@ -25,6 +25,7 @@ func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 type Server struct {
 	readHandler  func(filename string, rf io.ReaderFrom) error
 	writeHandler func(filename string, wt io.WriterTo) error
+	backoff      backoffFunc
 	conn         *net.UDPConn
 	quit         chan chan struct{}
 	wg           sync.WaitGroup
@@ -52,6 +53,12 @@ func (s *Server) SetRetries(count int) {
 	} else {
 		s.retries = count
 	}
+}
+
+// SetBackoff sets a user provided function that is called to provide a
+// backoff duration prior to retransmitting an unacknowledged packet.
+func (s *Server) SetBackoff(h backoffFunc) {
+	s.backoff = h
 }
 
 // ListenAndServe binds to address provided and start the server.
@@ -129,7 +136,7 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			send:    make([]byte, datagramLength),
 			receive: make([]byte, datagramLength),
 			conn:    conn,
-			retry:   &backoff{},
+			retry:   &backoff{handler: s.backoff},
 			timeout: s.timeout,
 			retries: s.retries,
 			addr:    remoteAddr,
@@ -166,7 +173,7 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			receive: make([]byte, datagramLength),
 			tid:     remoteAddr.Port,
 			conn:    conn,
-			retry:   &backoff{},
+			retry:   &backoff{handler: s.backoff},
 			timeout: s.timeout,
 			retries: s.retries,
 			addr:    remoteAddr,

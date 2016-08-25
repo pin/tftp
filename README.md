@@ -45,7 +45,7 @@ func readHandler(filename string, rf io.ReaderFrom) error {
 }
 
 // writeHandler is called when client starts file upload to server
-func writeHanlder(filename string, wt io.WriterTo) error {
+func writeHandler(filename string, wt io.WriterTo) error {
 	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -62,7 +62,7 @@ func writeHanlder(filename string, wt io.WriterTo) error {
 
 func main() {
 	// use nil in place of handler to disable read or write operations
-	s := tftp.NewServer(readHandler, writeHanlder)
+	s := tftp.NewServer(readHandler, writeHandler)
 	s.SetTimeout(5 * time.Second) // optional
 	err := s.ListenAndServe(":69") // blocks until s.Shutdown() is called
 	if err != nil {
@@ -149,4 +149,22 @@ func readHandler(filename string, rf io.ReaderFrom) error {
         ...
         // ReadFrom ...
 
+Backoff
+-------
+
+The default backoff before retransmitting an unacknowledged packet is a
+random duration between 0 and 1 second.  This behavior can be overridden
+in clients and servers by providing a custom backoff calculation function.
+
+```go
+	s := tftp.NewServer(readHandler, writeHandler)
+	s.SetBackoff(func (attempts int) time.Duration {
+		return time.Duration(attempts) * time.Second
+	})
+```
+
+or, for no backoff
+
+```go
+	s.SetBackoff(func (int) time.Duration { return 0 })
 ```

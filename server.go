@@ -25,44 +25,54 @@ func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 type Server struct {
 	readHandler  func(filename string, rf io.ReaderFrom) error
 	writeHandler func(filename string, wt io.WriterTo) error
-	backoff      backoffFunc
-	conn         *net.UDPConn
-	quit         chan chan struct{}
-	wg           sync.WaitGroup
-	timeout      time.Duration
-	retries      int
+
+	connMu sync.Mutex
+	conn   *net.UDPConn
+	quit   chan chan struct{}
+	wg     sync.WaitGroup
+
+	backoffMu sync.Mutex
+	backoff   backoffFunc
+	timeout   time.Duration
+	retries   int
 }
 
 // SetTimeout sets maximum time server waits for single network
 // round-trip to succeed.
 // Default is 5 seconds.
 func (s *Server) SetTimeout(t time.Duration) {
+	s.backoffMu.Lock()
 	if t <= 0 {
 		s.timeout = defaultTimeout
 	} else {
 		s.timeout = t
 	}
+	s.backoffMu.Unlock()
 }
 
 // SetRetries sets maximum number of attempts server made to transmit a
 // packet.
 // Default is 5 attempts.
 func (s *Server) SetRetries(count int) {
+	s.backoffMu.Lock()
 	if count < 1 {
 		s.retries = defaultRetries
 	} else {
 		s.retries = count
 	}
+	s.backoffMu.Unlock()
 }
 
 // SetBackoff sets a user provided function that is called to provide a
 // backoff duration prior to retransmitting an unacknowledged packet.
 func (s *Server) SetBackoff(h backoffFunc) {
+	s.backoffMu.Lock()
 	s.backoff = h
+	s.backoffMu.Unlock()
 }
 
 // ListenAndServe binds to address provided and start the server.
-// ListenAndServe returns when Shutdown is called.
+// ListenAndServe blocks until Shutdown is called.
 func (s *Server) ListenAndServe(addr string) error {
 	a, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -79,17 +89,22 @@ func (s *Server) ListenAndServe(addr string) error {
 // Serve starts server provided already opened UDP connecton. It is
 // useful for the case when you want to run server in separate goroutine
 // but still want to be able to handle any errors opening connection.
-// Serve returns when Shutdown is called or connection is closed.
+// Serve blocks until Shutdown is called or connection is closed.
 func (s *Server) Serve(conn *net.UDPConn) {
+	s.connMu.Lock()
+	if s.conn != nil {
+		panic("trying to start server that is already running")
+	}
 	s.conn = conn
 	s.quit = make(chan chan struct{})
+	s.connMu.Unlock()
 	for {
 		select {
 		case q := <-s.quit:
 			q <- struct{}{}
 			return
 		default:
-			err := s.processRequest(s.conn)
+			err := s.processRequest(conn)
 			if err != nil {
 				// TODO: add logging handler
 			}
@@ -100,11 +115,18 @@ func (s *Server) Serve(conn *net.UDPConn) {
 // Shutdown make server stop listening for new requests, allows
 // server to finish outstanding transfers and stops server.
 func (s *Server) Shutdown() {
+	s.connMu.Lock()
+	if s.conn == nil {
+		s.connMu.Unlock()
+		return
+	}
 	s.conn.Close()
+	s.conn = nil
 	q := make(chan struct{})
 	s.quit <- q
 	<-q
 	s.wg.Wait()
+	s.connMu.Unlock()
 }
 
 func (s *Server) processRequest(conn *net.UDPConn) error {
@@ -118,6 +140,11 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 	if err != nil {
 		return err
 	}
+	s.backoffMu.Lock()
+	boff := s.backoff
+	timeout := s.timeout
+	retries := s.retries
+	s.backoffMu.Unlock()
 	switch p := p.(type) {
 	case pWRQ:
 		filename, mode, opts, err := unpackRQ(p)
@@ -136,9 +163,9 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			send:    make([]byte, datagramLength),
 			receive: make([]byte, datagramLength),
 			conn:    conn,
-			retry:   &backoff{handler: s.backoff},
-			timeout: s.timeout,
-			retries: s.retries,
+			retry:   &backoff{handler: boff},
+			timeout: timeout,
+			retries: retries,
 			addr:    remoteAddr,
 			mode:    mode,
 			opts:    opts,
@@ -173,9 +200,9 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			receive: make([]byte, datagramLength),
 			tid:     remoteAddr.Port,
 			conn:    conn,
-			retry:   &backoff{handler: s.backoff},
-			timeout: s.timeout,
-			retries: s.retries,
+			retry:   &backoff{handler: boff},
+			timeout: timeout,
+			retries: retries,
 			addr:    remoteAddr,
 			mode:    mode,
 			opts:    opts,

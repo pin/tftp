@@ -349,11 +349,23 @@ type testBackend struct {
 }
 
 func makeTestServer() (*Server, *Client) {
-	b := &testBackend{}
-	b.m = make(map[string][]byte)
+	return makeTestServerWithHandlers(nil, nil)
+}
+
+func makeTestServerWithHandlers(readHandler func(filename string, rf io.ReaderFrom) error,
+	writeHandler func(filename string, wt io.WriterTo) error) (*Server, *Client) {
+	b := &testBackend{m: make(map[string][]byte)}
+
+	if readHandler == nil {
+		readHandler = b.handleRead
+	}
+
+	if writeHandler == nil {
+		writeHandler = b.handleWrite
+	}
 
 	// Create server
-	s := NewServer(b.handleRead, b.handleWrite)
+	s := NewServer(readHandler, writeHandler)
 
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
@@ -468,15 +480,14 @@ func (r *randReader) Read(p []byte) (n int, err error) {
 }
 
 func TestServerSendTimeout(t *testing.T) {
-	s, c := makeTestServer()
-	s.SetTimeout(time.Second)
-	s.SetRetries(2)
 	var serverErr error
-	s.readHandler = func(filename string, rf io.ReaderFrom) error {
+	s, c := makeTestServerWithHandlers(func(filename string, rf io.ReaderFrom) error {
 		r := io.LimitReader(newRandReader(rand.NewSource(42)), 80000)
 		_, serverErr = rf.ReadFrom(r)
 		return serverErr
-	}
+	}, nil)
+	s.SetTimeout(time.Second)
+	s.SetRetries(2)
 	defer s.Shutdown()
 	filename := "test-server-send-timeout"
 	mode := "octet"
@@ -499,15 +510,14 @@ func TestServerSendTimeout(t *testing.T) {
 }
 
 func TestServerReceiveTimeout(t *testing.T) {
-	s, c := makeTestServer()
-	s.SetTimeout(time.Second)
-	s.SetRetries(2)
 	var serverErr error
-	s.writeHandler = func(filename string, wt io.WriterTo) error {
+	s, c := makeTestServerWithHandlers(nil, func(filename string, wt io.WriterTo) error {
 		buf := &bytes.Buffer{}
 		_, serverErr = wt.WriteTo(buf)
 		return serverErr
-	}
+	})
+	s.SetTimeout(time.Second)
+	s.SetRetries(2)
 	defer s.Shutdown()
 	filename := "test-server-receive-timeout"
 	mode := "octet"
@@ -531,10 +541,7 @@ func TestServerReceiveTimeout(t *testing.T) {
 }
 
 func TestClientReceiveTimeout(t *testing.T) {
-	s, c := makeTestServer()
-	c.SetTimeout(time.Second)
-	c.SetRetries(2)
-	s.readHandler = func(filename string, rf io.ReaderFrom) error {
+	s, c := makeTestServerWithHandlers(func(filename string, rf io.ReaderFrom) error {
 		r := &slowReader{
 			r:     io.LimitReader(newRandReader(rand.NewSource(42)), 80000),
 			n:     3,
@@ -542,7 +549,9 @@ func TestClientReceiveTimeout(t *testing.T) {
 		}
 		_, err := rf.ReadFrom(r)
 		return err
-	}
+	}, nil)
+	c.SetTimeout(time.Second)
+	c.SetRetries(2)
 	defer s.Shutdown()
 	filename := "test-client-receive-timeout"
 	mode := "octet"
@@ -562,17 +571,16 @@ func TestClientReceiveTimeout(t *testing.T) {
 }
 
 func TestClientSendTimeout(t *testing.T) {
-	s, c := makeTestServer()
-	c.SetTimeout(time.Second)
-	c.SetRetries(2)
-	s.writeHandler = func(filename string, wt io.WriterTo) error {
+	s, c := makeTestServerWithHandlers(nil, func(filename string, wt io.WriterTo) error {
 		w := &slowWriter{
 			n:     3,
 			delay: 8 * time.Second,
 		}
 		_, err := wt.WriteTo(w)
 		return err
-	}
+	})
+	c.SetTimeout(time.Second)
+	c.SetRetries(2)
 	defer s.Shutdown()
 	filename := "test-client-send-timeout"
 	mode := "octet"

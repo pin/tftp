@@ -111,6 +111,7 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 	var buffer []byte
 	buffer = make([]byte, datagramLength)
 	n, remoteAddr, err := conn.ReadFromUDP(buffer)
+	localAddr := conn.LocalAddr()
 	if err != nil {
 		return fmt.Errorf("reading UDP: %v", err)
 	}
@@ -133,15 +134,16 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			return fmt.Errorf("open transmission: %v", err)
 		}
 		wt := &receiver{
-			send:    make([]byte, datagramLength),
-			receive: make([]byte, datagramLength),
-			conn:    conn,
-			retry:   &backoff{handler: s.backoff},
-			timeout: s.timeout,
-			retries: s.retries,
-			addr:    remoteAddr,
-			mode:    mode,
-			opts:    opts,
+			send:      make([]byte, datagramLength),
+			receive:   make([]byte, datagramLength),
+			conn:      conn,
+			retry:     &backoff{handler: s.backoff},
+			timeout:   s.timeout,
+			retries:   s.retries,
+			addr:      remoteAddr,
+			localAddr: localAddr,
+			mode:      mode,
+			opts:      opts,
 		}
 		s.wg.Add(1)
 		go func() {
@@ -169,16 +171,17 @@ func (s *Server) processRequest(conn *net.UDPConn) error {
 			return err
 		}
 		rf := &sender{
-			send:    make([]byte, datagramLength),
-			receive: make([]byte, datagramLength),
-			tid:     remoteAddr.Port,
-			conn:    conn,
-			retry:   &backoff{handler: s.backoff},
-			timeout: s.timeout,
-			retries: s.retries,
-			addr:    remoteAddr,
-			mode:    mode,
-			opts:    opts,
+			send:      make([]byte, datagramLength),
+			receive:   make([]byte, datagramLength),
+			tid:       remoteAddr.Port,
+			conn:      conn,
+			retry:     &backoff{handler: s.backoff},
+			timeout:   s.timeout,
+			retries:   s.retries,
+			addr:      remoteAddr,
+			localAddr: localAddr,
+			mode:      mode,
+			opts:      opts,
 		}
 		s.wg.Add(1)
 		go func() {

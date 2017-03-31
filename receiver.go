@@ -26,7 +26,7 @@ type IncomingTransfer interface {
 }
 
 func (r *receiver) RemoteAddr() net.UDPAddr { return *r.addr }
-func (r *receiver) LocalAddr() net.Addr     { return r.conn.LocalAddr() }
+func (r *receiver) LocalAddr() net.Addr     { return r.localAddr }
 
 func (r *receiver) Size() (n int64, ok bool) {
 	if r.opts != nil {
@@ -42,20 +42,21 @@ func (r *receiver) Size() (n int64, ok bool) {
 }
 
 type receiver struct {
-	send     []byte
-	receive  []byte
-	addr     *net.UDPAddr
-	tid      int
-	conn     *net.UDPConn
-	block    uint16
-	retry    *backoff
-	timeout  time.Duration
-	retries  int
-	l        int
-	autoTerm bool
-	dally    bool
-	mode     string
-	opts     options
+	send      []byte
+	receive   []byte
+	addr      *net.UDPAddr
+	localAddr net.Addr
+	tid       int
+	conn      *net.UDPConn
+	block     uint16
+	retry     *backoff
+	timeout   time.Duration
+	retries   int
+	l         int
+	autoTerm  bool
+	dally     bool
+	mode      string
+	opts      options
 }
 
 func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {

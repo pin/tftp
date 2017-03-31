@@ -133,19 +133,23 @@ func readHandler(filename string, rf io.ReaderFrom) error {
 Similarly, it is possible to obtain size of a file that is about to be
 received using `IncomingTransfer` interface (see `Size` method).
 
-Remote Address
---------------
+Local and Remote Address
+------------------------
 
-The `OutgoingTransfer` and `IncomingTransfer` interfaces also provide the
-`RemoteAddr` method which returns the peer IP address and port as a
-`net.UDPAddr`.  This can be used for detailed logging in a server handler.
+The `OutgoingTransfer` and `IncomingTransfer` interfaces also provide
+the `RemoteAddr` method which returns the peer IP address and port as
+a `net.UDPAddr`, and a `LocalAddr` method with returns the local IP
+address and port as a `net.IP` the request is being handled on.
+These can be used for detailed logging in a server handler, among other thinfs
 
 ```go
 
 func readHandler(filename string, rf io.ReaderFrom) error {
         ...
         raddr := rf.(tftp.OutgoingTransfer).RemoteAddr()
-        log.Println("RRQ from", raddr.String())
+        laddr := rf.(tftp.OutgoingTransfer).LocalAddr()
+        log.Println("RRQ from", raddr.String(), "To ",laddr.String())
+        log.Println("")
         ...
         // ReadFrom ...
 ```

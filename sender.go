@@ -28,6 +28,8 @@ type OutgoingTransfer interface {
 
 	// RemoteAddr returns the remote peer's IP address and port.
 	RemoteAddr() net.UDPAddr
+	// LocalAddr returns the IP address and port we are servicing the request on
+	LocalAddr() net.Addr
 }
 
 type sender struct {
@@ -45,6 +47,7 @@ type sender struct {
 }
 
 func (s *sender) RemoteAddr() net.UDPAddr { return *s.addr }
+func (s *sender) LocalAddr() net.Addr     { return s.conn.LocalAddr() }
 
 func (s *sender) SetSize(n int64) {
 	if s.opts != nil {

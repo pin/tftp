@@ -137,13 +137,26 @@ func (s *Server) Serve(conn *net.UDPConn) {
 // bit we are relying on the low-level packet control channel info to
 // get a reliable source address, and those have different types and
 // the struct itself is not easily interface-ized or embedded.
+//
+// If control is nil for whatever reason (either things not being
+// implemented on a target OS or whatever other reason), the code will
+// fall back to getting the local address from the underlying USP
+// connection.  The address this returns is not always guaranteed to
+// be the dest IP of the underlying packet for complicated UDP
+// processing reasons that I don't fully understand myself because TCP
+// tends to always be accurate.
 func (s *Server) processRequest4(conn4 *ipv4.PacketConn) error {
 	buf := make([]byte, datagramLength)
 	cnt, control, srcAddr, err := conn4.ReadFrom(buf)
 	if err != nil {
 		return fmt.Errorf("reading UDP: %v", err)
 	}
-	localAddr := control.Dst
+	var localAddr net.IP
+	if control != nil {
+		localAddr = control.Dst
+	} else {
+		localAddr = s.conn.LocalAddr().(*net.UDPAddr).IP
+	}
 	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt)
 }
 
@@ -153,7 +166,12 @@ func (s *Server) processRequest6(conn6 *ipv6.PacketConn) error {
 	if err != nil {
 		return fmt.Errorf("reading UDP: %v", err)
 	}
-	localAddr := control.Dst
+	var localAddr net.IP
+	if control != nil {
+		localAddr = control.Dst
+	} else {
+		localAddr = s.conn.LocalAddr().(*net.UDPAddr).IP
+	}
 	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt)
 }
 

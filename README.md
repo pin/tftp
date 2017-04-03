@@ -138,16 +138,22 @@ Local and Remote Address
 
 The `OutgoingTransfer` and `IncomingTransfer` interfaces also provide
 the `RemoteAddr` method which returns the peer IP address and port as
-a `net.UDPAddr`, and a `LocalAddr` method with returns the local IP
-address and port as a `net.IP` the request is being handled on.
-These can be used for detailed logging in a server handler, among other thinfs
+a `net.UDPAddr`, and a `LocalIP` method with returns the local IP
+address and port as a `net.IP` the request is being handled on.  These
+can be used for detailed logging in a server handler, among other
+things.
+
+Note that LocalIP may return nil or an unspecified IP address
+if finding that is not supported on a particular operating system by
+the Go net libraries, or if you call it as a TFTP client.
+
 
 ```go
 
 func readHandler(filename string, rf io.ReaderFrom) error {
         ...
         raddr := rf.(tftp.OutgoingTransfer).RemoteAddr()
-        laddr := rf.(tftp.OutgoingTransfer).LocalAddr()
+        laddr := rf.(tftp.OutgoingTransfer).LocalIP()
         log.Println("RRQ from", raddr.String(), "To ",laddr.String())
         log.Println("")
         ...

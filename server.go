@@ -75,40 +75,39 @@ func (s *Server) ListenAndServe(addr string) error {
 	if err != nil {
 		return err
 	}
-	s.Serve(conn)
-	return nil
+	return s.Serve(conn)
 }
 
 // Serve starts server provided already opened UDP connecton. It is
 // useful for the case when you want to run server in separate goroutine
 // but still want to be able to handle any errors opening connection.
 // Serve returns when Shutdown is called or connection is closed.
-func (s *Server) Serve(conn *net.UDPConn) {
+func (s *Server) Serve(conn *net.UDPConn) error {
 	defer conn.Close()
 	laddr := conn.LocalAddr()
-	var conn4 *ipv4.PacketConn
-	var conn6 *ipv6.PacketConn
 	host, _, err := net.SplitHostPort(laddr.String())
-	s.conn = conn
 	if err != nil {
-		panic(err.Error())
+		return err
 	}
+	s.conn = conn
 	// Having seperate control paths for IP4 and IP6 is annoying,
 	// but necessary at this point.
-	if addr := net.ParseIP(host); addr == nil {
-		panic("Failed to parse listen address")
-	} else if addr.To4() != nil {
+	addr := net.ParseIP(host)
+	if addr == nil {
+		return fmt.Errorf("Failed to determine IP class of listening address")
+	}
+	var conn4 *ipv4.PacketConn
+	var conn6 *ipv6.PacketConn
+	if addr.To4() != nil {
 		conn4 = ipv4.NewPacketConn(conn)
-		defer conn4.Close()
 		if err := conn4.SetControlMessage(ipv4.FlagDst, true); err != nil {
-			panic(err.Error())
+			conn4 = nil
 		}
 	} else {
 		conn6 = ipv6.NewPacketConn(conn)
 		if err := conn6.SetControlMessage(ipv6.FlagDst, true); err != nil {
-			panic(err.Error())
+			conn6 = nil
 		}
-		defer conn6.Close()
 	}
 
 	s.quit = make(chan chan struct{})
@@ -116,7 +115,7 @@ func (s *Server) Serve(conn *net.UDPConn) {
 		select {
 		case q := <-s.quit:
 			q <- struct{}{}
-			return
+			return nil
 		default:
 			var err error
 			if conn4 != nil {
@@ -124,7 +123,7 @@ func (s *Server) Serve(conn *net.UDPConn) {
 			} else if conn6 != nil {
 				err = s.processRequest6(conn6)
 			} else {
-				panic("Cannot happen")
+				err = s.processRequest()
 			}
 			if err != nil {
 				// TODO: add logging handler
@@ -139,12 +138,8 @@ func (s *Server) Serve(conn *net.UDPConn) {
 // the struct itself is not easily interface-ized or embedded.
 //
 // If control is nil for whatever reason (either things not being
-// implemented on a target OS or whatever other reason), the code will
-// fall back to getting the local address from the underlying USP
-// connection.  The address this returns is not always guaranteed to
-// be the dest IP of the underlying packet for complicated UDP
-// processing reasons that I don't fully understand myself because TCP
-// tends to always be accurate.
+// implemented on a target OS or whatever other reason), localIP
+// (and hence LocalIP()) will return a nil IP address.
 func (s *Server) processRequest4(conn4 *ipv4.PacketConn) error {
 	buf := make([]byte, datagramLength)
 	cnt, control, srcAddr, err := conn4.ReadFrom(buf)
@@ -154,8 +149,6 @@ func (s *Server) processRequest4(conn4 *ipv4.PacketConn) error {
 	var localAddr net.IP
 	if control != nil {
 		localAddr = control.Dst
-	} else {
-		localAddr = s.conn.LocalAddr().(*net.UDPAddr).IP
 	}
 	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt)
 }
@@ -169,10 +162,18 @@ func (s *Server) processRequest6(conn6 *ipv6.PacketConn) error {
 	var localAddr net.IP
 	if control != nil {
 		localAddr = control.Dst
-	} else {
-		localAddr = s.conn.LocalAddr().(*net.UDPAddr).IP
 	}
 	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt)
+}
+
+// Fallback if we had problems opening a ipv4/6 control channel
+func (s *Server) processRequest() error {
+	buf := make([]byte, datagramLength)
+	cnt, srcAddr, err := s.conn.ReadFromUDP(buf)
+	if err != nil {
+		return fmt.Errorf("reading UDP: %v", err)
+	}
+	return s.handlePacket(nil, srcAddr, buf, cnt)
 }
 
 // Shutdown make server stop listening for new requests, allows
@@ -205,16 +206,16 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			return fmt.Errorf("open transmission: %v", err)
 		}
 		wt := &receiver{
-			send:      make([]byte, datagramLength),
-			receive:   make([]byte, datagramLength),
-			conn:      conn,
-			retry:     &backoff{handler: s.backoff},
-			timeout:   s.timeout,
-			retries:   s.retries,
-			addr:      remoteAddr,
-			localAddr: localAddr,
-			mode:      mode,
-			opts:      opts,
+			send:    make([]byte, datagramLength),
+			receive: make([]byte, datagramLength),
+			conn:    conn,
+			retry:   &backoff{handler: s.backoff},
+			timeout: s.timeout,
+			retries: s.retries,
+			addr:    remoteAddr,
+			localIP: localAddr,
+			mode:    mode,
+			opts:    opts,
 		}
 		s.wg.Add(1)
 		go func() {
@@ -242,17 +243,17 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			return err
 		}
 		rf := &sender{
-			send:      make([]byte, datagramLength),
-			receive:   make([]byte, datagramLength),
-			tid:       remoteAddr.Port,
-			conn:      conn,
-			retry:     &backoff{handler: s.backoff},
-			timeout:   s.timeout,
-			retries:   s.retries,
-			addr:      remoteAddr,
-			localAddr: localAddr,
-			mode:      mode,
-			opts:      opts,
+			send:    make([]byte, datagramLength),
+			receive: make([]byte, datagramLength),
+			tid:     remoteAddr.Port,
+			conn:    conn,
+			retry:   &backoff{handler: s.backoff},
+			timeout: s.timeout,
+			retries: s.retries,
+			addr:    remoteAddr,
+			localIP: localAddr,
+			mode:    mode,
+			opts:    opts,
 		}
 		s.wg.Add(1)
 		go func() {

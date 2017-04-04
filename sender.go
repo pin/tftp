@@ -28,7 +28,16 @@ type OutgoingTransfer interface {
 
 	// RemoteAddr returns the remote peer's IP address and port.
 	RemoteAddr() net.UDPAddr
-	// LocalAddr returns the IP address and port we are servicing the request on
+}
+
+// RequestPacketInfo provides a method of getting the local IP address
+// that is handling a UDP request.  It relies for its accuracy on the
+// OS providing methods to inspect the underlying UDP and IP packets
+// directly.
+type RequestPacketInfo interface {
+	// LocalAddr returns the IP address we are servicing the request on.
+	// If it is unable to determine what address that is, the returned
+	// net.IP will be nil.
 	LocalIP() net.IP
 }
 

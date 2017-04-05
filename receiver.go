@@ -24,6 +24,7 @@ type IncomingTransfer interface {
 }
 
 func (r *receiver) RemoteAddr() net.UDPAddr { return *r.addr }
+func (r *receiver) LocalIP() net.IP         { return r.localIP }
 
 func (r *receiver) Size() (n int64, ok bool) {
 	if r.opts != nil {
@@ -42,6 +43,7 @@ type receiver struct {
 	send     []byte
 	receive  []byte
 	addr     *net.UDPAddr
+	localIP  net.IP
 	tid      int
 	conn     *net.UDPConn
 	block    uint16

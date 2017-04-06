@@ -236,7 +236,6 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 					wt.abort(err)
 				} else {
 					wt.terminate()
-					wt.conn.Close()
 				}
 			} else {
 				wt.abort(fmt.Errorf("server does not support write requests"))

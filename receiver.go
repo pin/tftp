@@ -80,7 +80,6 @@ func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 			if r.l < len(r.receive) {
 				if r.autoTerm {
 					r.terminate()
-					r.conn.Close()
 				}
 				return n, nil
 			}
@@ -203,6 +202,10 @@ func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
 }
 
 func (r *receiver) terminate() error {
+	if r.conn == nil {
+		return nil
+	}
+	defer r.conn.Close()
 	binary.BigEndian.PutUint16(r.send[2:4], r.block)
 	if r.dally {
 		for i := 0; i < 3; i++ {

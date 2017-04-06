@@ -620,3 +620,149 @@ func (r *slowWriter) Write(p []byte) (n int, err error) {
 	time.Sleep(r.delay)
 	return len(p), nil
 }
+
+// TestRequestPacketInfo checks that request packet destination address
+// obtained by server using out-of-band socket info is sane.
+// It creates server and tries to do transfers using different local interfaces.
+// NB: Test ignores transfer errors and validates RequestPacketInfo only
+// if transfer is completed successfully. So it checks that LocalIP returns
+// correct result if any result is returned, but does not check if result was
+// returned at all when it should.
+func TestRequestPacketInfo(t *testing.T) {
+	// localIP keeps value received from RequestPacketInfo.LocalIP
+	// call inside handler.
+	// If RequestPacketInfo is not supported, value is set to unspecified
+	// IP address.
+	var localIP net.IP
+	var localIPMu sync.Mutex
+
+	s := NewServer(
+		func(_ string, rf io.ReaderFrom) error {
+			localIPMu.Lock()
+			if rpi, ok := rf.(RequestPacketInfo); ok {
+				localIP = rpi.LocalIP()
+			} else {
+				localIP = net.IP{}
+			}
+			localIPMu.Unlock()
+			_, err := rf.ReadFrom(io.LimitReader(
+				newRandReader(rand.NewSource(42)), 42))
+			if err != nil {
+				t.Logf("sending to client: %v", err)
+			}
+			return nil
+		},
+		func(_ string, wt io.WriterTo) error {
+			localIPMu.Lock()
+			if rpi, ok := wt.(RequestPacketInfo); ok {
+				localIP = rpi.LocalIP()
+			} else {
+				localIP = net.IP{}
+			}
+			localIPMu.Unlock()
+			_, err := wt.WriteTo(ioutil.Discard)
+			if err != nil {
+				t.Logf("receiving from client: %v", err)
+			}
+			return nil
+		},
+	)
+
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
+	if err != nil {
+		t.Fatalf("listen UDP: %v", err)
+	}
+
+	_, port, err := net.SplitHostPort(conn.LocalAddr().String())
+	if err != nil {
+		t.Fatalf("parsing server port: %v", err)
+	}
+
+	// Start server
+	go func() {
+		err := s.Serve(conn)
+		if err != nil {
+			t.Fatalf("serve: %v", err)
+		}
+	}()
+	defer s.Shutdown()
+
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatalf("listing interface addresses: %v", err)
+	}
+
+	for _, addr := range addrs {
+		ip := networkIP(addr.(*net.IPNet))
+		if ip == nil {
+			continue
+		}
+
+		c, err := NewClient(net.JoinHostPort(ip.String(), port))
+		if err != nil {
+			t.Fatalf("new client: %v", err)
+		}
+
+		// Skip re-tries to skip non-routable interfaces faster
+		c.SetRetries(0)
+
+		ot, err := c.Send("a", "octet")
+		if err != nil {
+			t.Logf("start sending to %v: %v", ip, err)
+			continue
+		}
+		_, err = ot.ReadFrom(io.LimitReader(
+			newRandReader(rand.NewSource(42)), 42))
+		if err != nil {
+			t.Logf("sending to %v: %v", ip, err)
+			continue
+		}
+
+		// Check that read handler received IP that was used
+		// to create the client.
+		localIPMu.Lock()
+		if localIP != nil && !localIP.IsUnspecified() { // Skip check if no packet info
+			if !localIP.Equal(ip) {
+				t.Errorf("sent to: %v, request packet: %v", ip, localIP)
+			}
+		} else {
+			fmt.Printf("Skip %v\n", ip)
+		}
+		localIPMu.Unlock()
+
+		it, err := c.Receive("a", "octet")
+		if err != nil {
+			t.Logf("start receiving from %v: %v", ip, err)
+			continue
+		}
+		_, err = it.WriteTo(ioutil.Discard)
+		if err != nil {
+			t.Logf("receiving from %v: %v", ip, err)
+			continue
+		}
+
+		// Check that write handler received IP that was used
+		// to create the client.
+		localIPMu.Lock()
+		if localIP != nil && !localIP.IsUnspecified() { // Skip check if no packet info
+			if !localIP.Equal(ip) {
+				t.Errorf("sent to: %v, request packet: %v", ip, localIP)
+			}
+		} else {
+			fmt.Printf("Skip %v\n", ip)
+		}
+		localIPMu.Unlock()
+
+		fmt.Printf("Done %v\n", ip)
+	}
+}
+
+func networkIP(n *net.IPNet) net.IP {
+	if ip := n.IP.To4(); ip != nil {
+		return ip
+	}
+	if len(n.IP) == net.IPv6len {
+		return n.IP
+	}
+	return nil
+}

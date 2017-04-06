@@ -25,6 +25,17 @@ func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 	}
 }
 
+// RequestPacketInfo provides a method of getting the local IP address
+// that is handling a UDP request.  It relies for its accuracy on the
+// OS providing methods to inspect the underlying UDP and IP packets
+// directly.
+type RequestPacketInfo interface {
+	// LocalAddr returns the IP address we are servicing the request on.
+	// If it is unable to determine what address that is, the returned
+	// net.IP will be nil.
+	LocalIP() net.IP
+}
+
 type Server struct {
 	readHandler  func(filename string, rf io.ReaderFrom) error
 	writeHandler func(filename string, wt io.WriterTo) error
@@ -225,7 +236,6 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 					wt.abort(err)
 				} else {
 					wt.terminate()
-					wt.conn.Close()
 				}
 			} else {
 				wt.abort(fmt.Errorf("server does not support write requests"))

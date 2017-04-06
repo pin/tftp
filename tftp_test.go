@@ -2,6 +2,7 @@ package tftp
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -765,4 +766,84 @@ func networkIP(n *net.IPNet) net.IP {
 		return n.IP
 	}
 	return nil
+}
+
+// TestFileIOExceptions checks that errors returned by io.Reader or io.Writer used by
+// the handler are handled correctly.
+func TestReadWriteErrors(t *testing.T) {
+	s := NewServer(
+		func(_ string, rf io.ReaderFrom) error {
+			_, err := rf.ReadFrom(&failingReader{}) // Read operation fails immediately.
+			if err != readError {
+				t.Errorf("want: %v, got: %v", readError, err)
+			}
+			// return no error from handler, client still should receive error
+			return nil
+		},
+		func(_ string, wt io.WriterTo) error {
+			_, err := wt.WriteTo(&failingWriter{}) // Write operation fails immediately.
+			if err != writeError {
+				t.Errorf("want: %v, got: %v", writeError, err)
+			}
+			// return no error from handler, client still should receive error
+			return nil
+		},
+	)
+
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
+	if err != nil {
+		t.Fatalf("listen UDP: %v", err)
+	}
+
+	_, port, err := net.SplitHostPort(conn.LocalAddr().String())
+	if err != nil {
+		t.Fatalf("parsing server port: %v", err)
+	}
+
+	// Start server
+	go func() {
+		err := s.Serve(conn)
+		if err != nil {
+			t.Fatalf("running serve: %v", err)
+		}
+	}()
+	defer s.Shutdown()
+
+	// Create client
+	c, err := NewClient(net.JoinHostPort(localhost, port))
+	if err != nil {
+		t.Fatalf("creating new client: %v", err)
+	}
+
+	ot, err := c.Send("a", "octet")
+	if err != nil {
+		t.Errorf("start sending: %v", err)
+	}
+
+	_, err = ot.ReadFrom(io.LimitReader(
+		newRandReader(rand.NewSource(42)), 42))
+	if err == nil {
+		t.Errorf("missing write error")
+	}
+
+	_, err = c.Receive("a", "octet")
+	if err == nil {
+		t.Errorf("missing read error")
+	}
+}
+
+type failingReader struct{}
+
+var readError = errors.New("read error")
+
+func (_ *failingReader) Read(_ []byte) (int, error) {
+	return 0, readError
+}
+
+type failingWriter struct{}
+
+var writeError = errors.New("write error")
+
+func (_ *failingWriter) Write(_ []byte) (int, error) {
+	return 0, writeError
 }

@@ -45,6 +45,11 @@ func (c *Client) SetBackoff(h backoffFunc) {
 	c.backoff = h
 }
 
+// SetTsize sets flag to indicate if tsize should be requested.
+func (c *Client) SetTsize(s bool) {
+  c.tsize = s
+}
+
 type Client struct {
 	addr    *net.UDPAddr
 	timeout time.Duration

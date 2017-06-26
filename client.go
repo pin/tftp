@@ -45,9 +45,9 @@ func (c *Client) SetBackoff(h backoffFunc) {
 	c.backoff = h
 }
 
-// SetTsize sets flag to indicate if tsize should be requested.
-func (c *Client) SetTsize(s bool) {
-  c.tsize = s
+// RequestTSize sets flag to indicate if tsize should be requested.
+func (c *Client) RequestTSize(s bool) {
+	c.tsize = s
 }
 
 type Client struct {

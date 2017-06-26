@@ -327,11 +327,11 @@ func TestSendTsizeFromSeek(t *testing.T) {
 	defer s.Shutdown()
 
 	c, _ := NewClient(localSystem(conn))
-	c.tsize = true
+	c.RequestTSize(true)
 	r, _ := c.Receive("f", "octet")
 	var size int64
-	if t, ok := r.(IncomingTransfer); ok {
-		if n, ok := t.Size(); ok {
+	if it, ok := r.(IncomingTransfer); ok {
+		if n, ok := it.Size(); ok {
 			size = n
 			fmt.Printf("Transfer size: %d\n", n)
 		}
@@ -339,6 +339,17 @@ func TestSendTsizeFromSeek(t *testing.T) {
 
 	if size != 100 {
 		t.Errorf("size expected: 100, got %d", size)
+	}
+
+	r.WriteTo(ioutil.Discard)
+
+	c.RequestTSize(false)
+	r, _ = c.Receive("f", "octet")
+	if it, ok := r.(IncomingTransfer); ok {
+		_, ok := it.Size()
+		if ok {
+			t.Errorf("unexpected size received")
+		}
 	}
 
 	r.WriteTo(ioutil.Discard)

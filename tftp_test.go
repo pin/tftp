@@ -256,7 +256,7 @@ func TestNotFound(t *testing.T) {
 	mode := "octet"
 	_, err := c.Receive(filename, mode)
 	if err == nil {
-		t.Fatalf("file not exists", err)
+		t.Fatalf("file not exists: %v", err)
 	}
 	t.Logf("receiving file that does not exist: %v", err)
 }

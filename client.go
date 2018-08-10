@@ -45,8 +45,8 @@ func (c *Client) SetBackoff(h backoffFunc) {
 	c.backoff = h
 }
 
-// SetBlksize sets a custom block size used in the transmission.
-func (c *Client) SetBlksize(s int) {
+// SetBlockSize sets a custom block size used in the transmission.
+func (c *Client) SetBlockSize(s int) {
 	c.blksize = s
 }
 

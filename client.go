@@ -45,6 +45,11 @@ func (c *Client) SetBackoff(h backoffFunc) {
 	c.backoff = h
 }
 
+// SetBlksize sets a custom block size used in the transmission.
+func (c *Client) SetBlksize(s int) {
+	c.blksize = s
+}
+
 // RequestTSize sets flag to indicate if tsize should be requested.
 func (c *Client) RequestTSize(s bool) {
 	c.tsize = s
@@ -115,6 +120,8 @@ func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 	}
 	if c.blksize != 0 {
 		r.opts["blksize"] = strconv.Itoa(c.blksize)
+		// Clean it up so we don't send options twice
+		defer func() { delete(r.opts, "blksize") }()
 	}
 	if c.tsize {
 		r.opts["tsize"] = "0"

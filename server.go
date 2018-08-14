@@ -37,6 +37,9 @@ type Server struct {
 	// WriteHandler fires when client uploads a file to the server.
 	WriteHandler func(filename string, wt io.WriterTo) error
 
+	// OnError fires when Read or Write handler returns error
+	OnError func(error)
+
 	backoff backoffFunc
 	conn    *net.UDPConn
 	quit    chan chan struct{}
@@ -135,7 +138,7 @@ func (s *Server) Serve(conn *net.UDPConn) error {
 				err = s.processRequest()
 			}
 			if err != nil {
-				// TODO: add logging handler
+				s.OnError(err)
 			}
 		}
 	}

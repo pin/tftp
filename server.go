@@ -11,17 +11,11 @@ import (
 	"golang.org/x/net/ipv6"
 )
 
-// NewServer creates TFTP server. It requires two functions to handle
-// read and write requests.
-// In case nil is provided for read or write handler the respective
-// operation is disabled.
-func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
-	writeHandler func(filename string, wt io.WriterTo) error) *Server {
+// NewServer creates TFTP server.
+func New() *Server {
 	return &Server{
-		readHandler:  readHandler,
-		writeHandler: writeHandler,
-		timeout:      defaultTimeout,
-		retries:      defaultRetries,
+		timeout: defaultTimeout,
+		retries: defaultRetries,
 	}
 }
 
@@ -37,14 +31,18 @@ type RequestPacketInfo interface {
 }
 
 type Server struct {
-	readHandler  func(filename string, rf io.ReaderFrom) error
-	writeHandler func(filename string, wt io.WriterTo) error
-	backoff      backoffFunc
-	conn         *net.UDPConn
-	quit         chan chan struct{}
-	wg           sync.WaitGroup
-	timeout      time.Duration
-	retries      int
+	// ReadHandler fires when client download a file from the server.
+	ReadHandler func(filename string, rf io.ReaderFrom) error
+
+	// WriteHandler fires when client uploads a file to the server.
+	WriteHandler func(filename string, wt io.WriterTo) error
+
+	backoff backoffFunc
+	conn    *net.UDPConn
+	quit    chan chan struct{}
+	wg      sync.WaitGroup
+	timeout time.Duration
+	retries int
 }
 
 // SetTimeout sets maximum time server waits for single network
@@ -230,8 +228,8 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		s.wg.Add(1)
 		go func() {
-			if s.writeHandler != nil {
-				err := s.writeHandler(filename, wt)
+			if s.WriteHandler != nil {
+				err := s.WriteHandler(filename, wt)
 				if err != nil {
 					wt.abort(err)
 				} else {
@@ -267,8 +265,8 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		s.wg.Add(1)
 		go func() {
-			if s.readHandler != nil {
-				err := s.readHandler(filename, rf)
+			if s.ReadHandler != nil {
+				err := s.ReadHandler(filename, rf)
 				if err != nil {
 					rf.abort(err)
 				}

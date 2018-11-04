@@ -36,6 +36,7 @@ type sender struct {
 	localIP net.IP
 	tid     int
 	send    []byte
+	sendA   senderAnticipate
 	receive []byte
 	retry   *backoff
 	timeout time.Duration
@@ -88,6 +89,9 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 			s.abort(err)
 			return 0, err
 		}
+	}
+	if s.sendA.enabled { /* senderAnticipate */
+		return readFromAnticipate(s, r)
 	}
 	s.block = 1 // start data transmission with block 1
 	binary.BigEndian.PutUint16(s.send[0:2], opDATA)
@@ -163,6 +167,9 @@ func (s *sender) setBlockSize(blksize string) error {
 		return fmt.Errorf("blksize too large: %d", n)
 	}
 	s.send = make([]byte, n+4)
+	if s.sendA.enabled { /* senderAnticipate */
+		sendAInit(&s.sendA, uint(n+4), s.sendA.winsz)
+	}
 	return nil
 }
 

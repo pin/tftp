@@ -45,6 +45,13 @@ type Server struct {
 	wg           sync.WaitGroup
 	timeout      time.Duration
 	retries      int
+	sendAEnable  bool /* senderAnticipate enable by server */
+	sendAWinSz   uint
+}
+
+func (s *Server) SetAnticipate(en bool, winsz uint) {
+	s.sendAEnable = en
+	s.sendAWinSz = winsz
 }
 
 // SetTimeout sets maximum time server waits for single network
@@ -254,6 +261,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		rf := &sender{
 			send:    make([]byte, datagramLength),
+			sendA:   senderAnticipate{enabled:false},
 			receive: make([]byte, datagramLength),
 			tid:     remoteAddr.Port,
 			conn:    conn,
@@ -264,6 +272,10 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			localIP: localAddr,
 			mode:    mode,
 			opts:    opts,
+		}
+		if s.sendAEnable { /* senderAnticipate if enabled in server */
+			rf.sendA.enabled = true /* pass enable from server to sender */
+			sendAInit(&rf.sendA, datagramLength, s.sendAWinSz)
 		}
 		s.wg.Add(1)
 		go func() {

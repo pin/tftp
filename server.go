@@ -49,9 +49,23 @@ type Server struct {
 	sendAWinSz   uint
 }
 
-func (s *Server) SetAnticipate(en bool, winsz uint) {
-	s.sendAEnable = en
-	s.sendAWinSz = winsz
+// SetAnticipate provides an experimental feature in which when a packets 
+// is requested the server will keep sending a number of packets before 
+// checking whether an ack has been received. It improves tftp downloading 
+// speed by a few times. 
+// The argument winsz specifies how many packets will be sent before 
+// waiting for an ack packet. 
+// When winsz is bigger than 1, the feature is enabled, and the server 
+// runs through a different experimental code path. When winsz is 0 or 1, 
+// the feature is disabled. 
+func (s *Server) SetAnticipate(winsz uint) {
+	if winsz > 1 {
+		s.sendAEnable = true
+		s.sendAWinSz = winsz
+	} else {
+		s.sendAEnable = false
+		s.sendAWinSz = 1
+	}
 }
 
 // SetTimeout sets maximum time server waits for single network

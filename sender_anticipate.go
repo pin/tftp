@@ -36,7 +36,7 @@ func sendAInit(sA *senderAnticipate, ln uint, winSz uint) {
 		sA.sendslens[k] = 0
 	}
 	sA.winsz = ksz
-	fmt.Printf("  Set packet buffer size %v\n", ln)
+	//fmt.Printf("  Set packet buffer size %v\n", ln)
 }
 
 // derived from ReadFrom()

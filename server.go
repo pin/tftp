@@ -45,6 +45,27 @@ type Server struct {
 	wg           sync.WaitGroup
 	timeout      time.Duration
 	retries      int
+	sendAEnable  bool /* senderAnticipate enable by server */
+	sendAWinSz   uint
+}
+
+// SetAnticipate provides an experimental feature in which when a packets 
+// is requested the server will keep sending a number of packets before 
+// checking whether an ack has been received. It improves tftp downloading 
+// speed by a few times. 
+// The argument winsz specifies how many packets will be sent before 
+// waiting for an ack packet. 
+// When winsz is bigger than 1, the feature is enabled, and the server 
+// runs through a different experimental code path. When winsz is 0 or 1, 
+// the feature is disabled. 
+func (s *Server) SetAnticipate(winsz uint) {
+	if winsz > 1 {
+		s.sendAEnable = true
+		s.sendAWinSz = winsz
+	} else {
+		s.sendAEnable = false
+		s.sendAWinSz = 1
+	}
 }
 
 // SetTimeout sets maximum time server waits for single network
@@ -254,6 +275,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		rf := &sender{
 			send:    make([]byte, datagramLength),
+			sendA:   senderAnticipate{enabled:false},
 			receive: make([]byte, datagramLength),
 			tid:     remoteAddr.Port,
 			conn:    conn,
@@ -264,6 +286,10 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			localIP: localAddr,
 			mode:    mode,
 			opts:    opts,
+		}
+		if s.sendAEnable { /* senderAnticipate if enabled in server */
+			rf.sendA.enabled = true /* pass enable from server to sender */
+			sendAInit(&rf.sendA, datagramLength, s.sendAWinSz)
 		}
 		s.wg.Add(1)
 		go func() {

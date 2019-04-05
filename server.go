@@ -196,7 +196,7 @@ func (s *Server) processRequest4(conn4 *ipv4.PacketConn) error {
 	var localAddr net.IP
 	if control != nil {
 		localAddr = control.Dst
-		if intf, err := net.InterfaceByIndex(control.IfIndex); err != nil {
+		if intf, err := net.InterfaceByIndex(control.IfIndex); err == nil {
 			// mtu - ipv4 overhead - udp overhead
 			maxSz = intf.MTU - 28
 		}
@@ -214,7 +214,7 @@ func (s *Server) processRequest6(conn6 *ipv6.PacketConn) error {
 	var localAddr net.IP
 	if control != nil {
 		localAddr = control.Dst
-		if intf, err := net.InterfaceByIndex(control.IfIndex); err != nil {
+		if intf, err := net.InterfaceByIndex(control.IfIndex); err == nil {
 			// mtu - ipv6 overhead - udp overhead
 			maxSz = intf.MTU - 48
 		}

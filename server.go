@@ -25,6 +25,18 @@ func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 	}
 }
 
+// NewServerWithAddr creates a new server with read and write handlers
+// These handlers will have access to the remote address of the incoming connection
+func NewServerWithAddr(readHandlerWithAddr func(filename string, addr *net.UDPAddr, rf io.ReaderFrom) error,
+	writeWithAddrHandler func(filename string, addr *net.UDPAddr, wt io.WriterTo) error) *Server {
+	return &Server{
+		readWithAddrHandler:  readHandlerWithAddr,
+		writeWithAddrHandler: writeWithAddrHandler,
+		timeout:              defaultTimeout,
+		retries:              defaultRetries,
+	}
+}
+
 // RequestPacketInfo provides a method of getting the local IP address
 // that is handling a UDP request.  It relies for its accuracy on the
 // OS providing methods to inspect the underlying UDP and IP packets
@@ -37,27 +49,29 @@ type RequestPacketInfo interface {
 }
 
 type Server struct {
-	readHandler  func(filename string, rf io.ReaderFrom) error
-	writeHandler func(filename string, wt io.WriterTo) error
-	backoff      backoffFunc
-	conn         *net.UDPConn
-	quit         chan chan struct{}
-	wg           sync.WaitGroup
-	timeout      time.Duration
-	retries      int
-	sendAEnable  bool /* senderAnticipate enable by server */
-	sendAWinSz   uint
+	readHandler          func(filename string, rf io.ReaderFrom) error
+	readWithAddrHandler  func(filename string, addr *net.UDPAddr, rf io.ReaderFrom) error
+	writeHandler         func(filename string, wt io.WriterTo) error
+	writeWithAddrHandler func(filename string, addr *net.UDPAddr, wt io.WriterTo) error
+	backoff              backoffFunc
+	conn                 *net.UDPConn
+	quit                 chan chan struct{}
+	wg                   sync.WaitGroup
+	timeout              time.Duration
+	retries              int
+	sendAEnable          bool /* senderAnticipate enable by server */
+	sendAWinSz           uint
 }
 
-// SetAnticipate provides an experimental feature in which when a packets 
-// is requested the server will keep sending a number of packets before 
-// checking whether an ack has been received. It improves tftp downloading 
-// speed by a few times. 
-// The argument winsz specifies how many packets will be sent before 
-// waiting for an ack packet. 
-// When winsz is bigger than 1, the feature is enabled, and the server 
-// runs through a different experimental code path. When winsz is 0 or 1, 
-// the feature is disabled. 
+// SetAnticipate provides an experimental feature in which when a packets
+// is requested the server will keep sending a number of packets before
+// checking whether an ack has been received. It improves tftp downloading
+// speed by a few times.
+// The argument winsz specifies how many packets will be sent before
+// waiting for an ack packet.
+// When winsz is bigger than 1, the feature is enabled, and the server
+// runs through a different experimental code path. When winsz is 0 or 1,
+// the feature is disabled.
 func (s *Server) SetAnticipate(winsz uint) {
 	if winsz > 1 {
 		s.sendAEnable = true
@@ -251,7 +265,15 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		s.wg.Add(1)
 		go func() {
-			if s.writeHandler != nil {
+			if s.writeWithAddrHandler != nil {
+				err := s.writeWithAddrHandler(filename, remoteAddr, wt)
+				if err != nil {
+					wt.abort(err)
+				} else {
+					wt.terminate()
+				}
+
+			} else if s.writeHandler != nil {
 				err := s.writeHandler(filename, wt)
 				if err != nil {
 					wt.abort(err)
@@ -275,7 +297,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		rf := &sender{
 			send:    make([]byte, datagramLength),
-			sendA:   senderAnticipate{enabled:false},
+			sendA:   senderAnticipate{enabled: false},
 			receive: make([]byte, datagramLength),
 			tid:     remoteAddr.Port,
 			conn:    conn,
@@ -293,7 +315,12 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		s.wg.Add(1)
 		go func() {
-			if s.readHandler != nil {
+			if s.readWithAddrHandler != nil {
+				err := s.readWithAddrHandler(filename, remoteAddr, rf)
+				if err != nil {
+					rf.abort(err)
+				}
+			} else if s.readHandler != nil {
 				err := s.readHandler(filename, rf)
 				if err != nil {
 					rf.abort(err)

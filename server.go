@@ -25,6 +25,18 @@ func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 	}
 }
 
+// NewServerWithAddr creates a new server with read and write handlers
+// These handlers will have access to the remote address of the incoming connection
+func NewServerWithAddr(readHandlerWithAddr func(filename string, addr *net.UDPAddr, rf io.ReaderFrom) error,
+	writeWithAddrHandler func(filename string, addr *net.UDPAddr, wt io.WriterTo) error) *Server {
+	return &Server{
+		readWithAddrHandler:  readHandlerWithAddr,
+		writeWithAddrHandler: writeWithAddrHandler,
+		timeout:              defaultTimeout,
+		retries:              defaultRetries,
+	}
+}
+
 // RequestPacketInfo provides a method of getting the local IP address
 // that is handling a UDP request.  It relies for its accuracy on the
 // OS providing methods to inspect the underlying UDP and IP packets
@@ -37,6 +49,7 @@ type RequestPacketInfo interface {
 }
 
 type Server struct {
+<<<<<<< HEAD
 	readHandler  func(filename string, rf io.ReaderFrom) error
 	writeHandler func(filename string, wt io.WriterTo) error
 	backoff      backoffFunc
@@ -48,6 +61,20 @@ type Server struct {
 	maxBlockLen  int
 	sendAEnable  bool /* senderAnticipate enable by server */
 	sendAWinSz   uint
+=======
+	readHandler          func(filename string, rf io.ReaderFrom) error
+	readWithAddrHandler  func(filename string, addr *net.UDPAddr, rf io.ReaderFrom) error
+	writeHandler         func(filename string, wt io.WriterTo) error
+	writeWithAddrHandler func(filename string, addr *net.UDPAddr, wt io.WriterTo) error
+	backoff              backoffFunc
+	conn                 *net.UDPConn
+	quit                 chan chan struct{}
+	wg                   sync.WaitGroup
+	timeout              time.Duration
+	retries              int
+	sendAEnable          bool /* senderAnticipate enable by server */
+	sendAWinSz           uint
+>>>>>>> 992b692... Add access to remoteAddr in handlers
 }
 
 // SetAnticipate provides an experimental feature in which when a packets
@@ -282,7 +309,15 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		s.wg.Add(1)
 		go func() {
-			if s.writeHandler != nil {
+			if s.writeWithAddrHandler != nil {
+				err := s.writeWithAddrHandler(filename, remoteAddr, wt)
+				if err != nil {
+					wt.abort(err)
+				} else {
+					wt.terminate()
+				}
+
+			} else if s.writeHandler != nil {
 				err := s.writeHandler(filename, wt)
 				if err != nil {
 					wt.abort(err)
@@ -325,7 +360,12 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		s.wg.Add(1)
 		go func() {
-			if s.readHandler != nil {
+			if s.readWithAddrHandler != nil {
+				err := s.readWithAddrHandler(filename, remoteAddr, rf)
+				if err != nil {
+					rf.abort(err)
+				}
+			} else if s.readHandler != nil {
 				err := s.readHandler(filename, rf)
 				if err != nil {
 					rf.abort(err)

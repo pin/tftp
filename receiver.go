@@ -45,7 +45,7 @@ type receiver struct {
 	addr        *net.UDPAddr
 	localIP     net.IP
 	tid         int
-	conn        *net.UDPConn
+	conn        connection
 	block       uint16
 	retry       *backoff
 	timeout     time.Duration
@@ -55,6 +55,7 @@ type receiver struct {
 	dally       bool
 	mode        string
 	opts        options
+	singlePort  bool
 	maxBlockLen int
 }
 
@@ -63,6 +64,12 @@ func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 		w = netascii.FromWriter(w)
 	}
 	if r.opts != nil {
+		if r.singlePort {
+			// We can only support one incoming blocksize in single port mode
+			if _, ok := r.opts["blksize"]; ok {
+				r.opts["blksize"] = strconv.Itoa(blockLength)
+			}
+		}
 		err := r.sendOptions()
 		if err != nil {
 			r.abort(err)
@@ -153,16 +160,16 @@ func (r *receiver) receiveWithRetry(l int) (int, *net.UDPAddr, error) {
 }
 
 func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
-	err := r.conn.SetReadDeadline(time.Now().Add(r.timeout))
+	err := r.conn.setDeadline(r.timeout)
 	if err != nil {
 		return 0, nil, err
 	}
-	_, err = r.conn.WriteToUDP(r.send[:l], r.addr)
+	err = r.conn.sendTo(r.send[:l], r.addr)
 	if err != nil {
 		return 0, nil, err
 	}
 	for {
-		c, addr, err := r.conn.ReadFromUDP(r.receive)
+		c, addr, err := r.conn.readFrom(r.receive)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -210,7 +217,7 @@ func (r *receiver) terminate() error {
 	if r.conn == nil {
 		return nil
 	}
-	defer r.conn.Close()
+	defer r.conn.close()
 	binary.BigEndian.PutUint16(r.send[2:4], r.block)
 	if r.dally {
 		for i := 0; i < 3; i++ {
@@ -221,7 +228,7 @@ func (r *receiver) terminate() error {
 		}
 		return fmt.Errorf("dallying termination failed")
 	} else {
-		_, err := r.conn.WriteToUDP(r.send[:4], r.addr)
+		err := r.conn.sendTo(r.send[:4], r.addr)
 		if err != nil {
 			return err
 		}
@@ -234,11 +241,11 @@ func (r *receiver) abort(err error) error {
 		return nil
 	}
 	n := packERROR(r.send, 1, err.Error())
-	_, err = r.conn.WriteToUDP(r.send[:n], r.addr)
+	err = r.conn.sendTo(r.send[:n], r.addr)
 	if err != nil {
 		return err
 	}
-	r.conn.Close()
+	r.conn.close()
 	r.conn = nil
 	return nil
 }

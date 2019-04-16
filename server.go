@@ -253,6 +253,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 	if err != nil {
 		return err
 	}
+	listenAddr := &net.UDPAddr{IP: localAddr}
 	switch p := p.(type) {
 	case pWRQ:
 		filename, mode, opts, err := unpackRQ(p)
@@ -260,7 +261,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			return fmt.Errorf("unpack WRQ: %v", err)
 		}
 		//fmt.Printf("got WRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
-		conn, err := net.ListenUDP("udp", &net.UDPAddr{})
+		conn, err := net.ListenUDP("udp", listenAddr)
 		if err != nil {
 			return err
 		}
@@ -300,7 +301,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			return fmt.Errorf("unpack RRQ: %v", err)
 		}
 		//fmt.Printf("got RRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
-		conn, err := net.ListenUDP("udp", &net.UDPAddr{})
+		conn, err := net.ListenUDP("udp", listenAddr)
 		if err != nil {
 			return err
 		}

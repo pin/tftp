@@ -45,19 +45,20 @@ type Server struct {
 	wg           sync.WaitGroup
 	timeout      time.Duration
 	retries      int
+	maxBlockLen  int
 	sendAEnable  bool /* senderAnticipate enable by server */
 	sendAWinSz   uint
 }
 
-// SetAnticipate provides an experimental feature in which when a packets 
-// is requested the server will keep sending a number of packets before 
-// checking whether an ack has been received. It improves tftp downloading 
-// speed by a few times. 
-// The argument winsz specifies how many packets will be sent before 
-// waiting for an ack packet. 
-// When winsz is bigger than 1, the feature is enabled, and the server 
-// runs through a different experimental code path. When winsz is 0 or 1, 
-// the feature is disabled. 
+// SetAnticipate provides an experimental feature in which when a packets
+// is requested the server will keep sending a number of packets before
+// checking whether an ack has been received. It improves tftp downloading
+// speed by a few times.
+// The argument winsz specifies how many packets will be sent before
+// waiting for an ack packet.
+// When winsz is bigger than 1, the feature is enabled, and the server
+// runs through a different experimental code path. When winsz is 0 or 1,
+// the feature is disabled.
 func (s *Server) SetAnticipate(winsz uint) {
 	if winsz > 1 {
 		s.sendAEnable = true
@@ -76,6 +77,19 @@ func (s *Server) SetTimeout(t time.Duration) {
 		s.timeout = defaultTimeout
 	} else {
 		s.timeout = t
+	}
+}
+
+// SetBlockSize sets the maximum size of an individual data block.
+// This must be a value between 512 (the default block size for TFTP)
+// and 65456 (the max size a UDP packet payload can be).
+//
+// This is an advisory value -- it will be clamped to the smaller of
+// the block size the client wants and the MTU of the interface being
+// communicated over munis overhead.
+func (s *Server) SetBlockSize(i int) {
+	if i > 512 && i < 65465 {
+		s.maxBlockLen = i
 	}
 }
 
@@ -132,12 +146,12 @@ func (s *Server) Serve(conn *net.UDPConn) error {
 	var conn6 *ipv6.PacketConn
 	if addr.To4() != nil {
 		conn4 = ipv4.NewPacketConn(conn)
-		if err := conn4.SetControlMessage(ipv4.FlagDst, true); err != nil {
+		if err := conn4.SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true); err != nil {
 			conn4 = nil
 		}
 	} else {
 		conn6 = ipv6.NewPacketConn(conn)
-		if err := conn6.SetControlMessage(ipv6.FlagDst, true); err != nil {
+		if err := conn6.SetControlMessage(ipv6.FlagDst|ipv6.FlagInterface, true); err != nil {
 			conn6 = nil
 		}
 	}
@@ -178,11 +192,16 @@ func (s *Server) processRequest4(conn4 *ipv4.PacketConn) error {
 	if err != nil {
 		return fmt.Errorf("reading UDP: %v", err)
 	}
+	maxSz := blockLength
 	var localAddr net.IP
 	if control != nil {
 		localAddr = control.Dst
+		if intf, err := net.InterfaceByIndex(control.IfIndex); err == nil {
+			// mtu - ipv4 overhead - udp overhead
+			maxSz = intf.MTU - 28
+		}
 	}
-	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt)
+	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, maxSz)
 }
 
 func (s *Server) processRequest6(conn6 *ipv6.PacketConn) error {
@@ -191,11 +210,16 @@ func (s *Server) processRequest6(conn6 *ipv6.PacketConn) error {
 	if err != nil {
 		return fmt.Errorf("reading UDP: %v", err)
 	}
+	maxSz := blockLength
 	var localAddr net.IP
 	if control != nil {
 		localAddr = control.Dst
+		if intf, err := net.InterfaceByIndex(control.IfIndex); err == nil {
+			// mtu - ipv6 overhead - udp overhead
+			maxSz = intf.MTU - 48
+		}
 	}
-	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt)
+	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, maxSz)
 }
 
 // Fallback if we had problems opening a ipv4/6 control channel
@@ -205,7 +229,7 @@ func (s *Server) processRequest() error {
 	if err != nil {
 		return fmt.Errorf("reading UDP: %v", err)
 	}
-	return s.handlePacket(nil, srcAddr, buf, cnt)
+	return s.handlePacket(nil, srcAddr, buf, cnt, blockLength)
 }
 
 // Shutdown make server stop listening for new requests, allows
@@ -218,7 +242,13 @@ func (s *Server) Shutdown() {
 	s.wg.Wait()
 }
 
-func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n int) error {
+func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int) error {
+	if s.maxBlockLen > 0 && s.maxBlockLen < maxBlockLen {
+		maxBlockLen = s.maxBlockLen
+	}
+	if maxBlockLen < blockLength {
+		maxBlockLen = blockLength
+	}
 	p, err := parsePacket(buffer[:n])
 	if err != nil {
 		return err
@@ -238,16 +268,17 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			return fmt.Errorf("open transmission: %v", err)
 		}
 		wt := &receiver{
-			send:    make([]byte, datagramLength),
-			receive: make([]byte, datagramLength),
-			conn:    conn,
-			retry:   &backoff{handler: s.backoff},
-			timeout: s.timeout,
-			retries: s.retries,
-			addr:    remoteAddr,
-			localIP: localAddr,
-			mode:    mode,
-			opts:    opts,
+			send:        make([]byte, datagramLength),
+			receive:     make([]byte, datagramLength),
+			conn:        conn,
+			retry:       &backoff{handler: s.backoff},
+			timeout:     s.timeout,
+			retries:     s.retries,
+			addr:        remoteAddr,
+			localIP:     localAddr,
+			mode:        mode,
+			opts:        opts,
+			maxBlockLen: maxBlockLen,
 		}
 		s.wg.Add(1)
 		go func() {
@@ -274,18 +305,19 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			return err
 		}
 		rf := &sender{
-			send:    make([]byte, datagramLength),
-			sendA:   senderAnticipate{enabled:false},
-			receive: make([]byte, datagramLength),
-			tid:     remoteAddr.Port,
-			conn:    conn,
-			retry:   &backoff{handler: s.backoff},
-			timeout: s.timeout,
-			retries: s.retries,
-			addr:    remoteAddr,
-			localIP: localAddr,
-			mode:    mode,
-			opts:    opts,
+			send:        make([]byte, datagramLength),
+			sendA:       senderAnticipate{enabled: false},
+			receive:     make([]byte, datagramLength),
+			tid:         remoteAddr.Port,
+			conn:        conn,
+			retry:       &backoff{handler: s.backoff},
+			timeout:     s.timeout,
+			retries:     s.retries,
+			addr:        remoteAddr,
+			localIP:     localAddr,
+			mode:        mode,
+			opts:        opts,
+			maxBlockLen: maxBlockLen,
 		}
 		if s.sendAEnable { /* senderAnticipate if enabled in server */
 			rf.sendA.enabled = true /* pass enable from server to sender */

@@ -31,19 +31,20 @@ type OutgoingTransfer interface {
 }
 
 type sender struct {
-	conn    *net.UDPConn
-	addr    *net.UDPAddr
-	localIP net.IP
-	tid     int
-	send    []byte
-	sendA   senderAnticipate
-	receive []byte
-	retry   *backoff
-	timeout time.Duration
-	retries int
-	block   uint16
-	mode    string
-	opts    options
+	conn        *net.UDPConn
+	addr        *net.UDPAddr
+	localIP     net.IP
+	tid         int
+	send        []byte
+	sendA       senderAnticipate
+	receive     []byte
+	retry       *backoff
+	timeout     time.Duration
+	retries     int
+	block       uint16
+	maxBlockLen int
+	mode        string
+	opts        options
 }
 
 func (s *sender) RemoteAddr() net.UDPAddr { return *s.addr }
@@ -161,10 +162,14 @@ func (s *sender) setBlockSize(blksize string) error {
 		return err
 	}
 	if n < 512 {
-		return fmt.Errorf("blkzise too small: %d", n)
+		return fmt.Errorf("blksize too small: %d", n)
 	}
 	if n > 65464 {
 		return fmt.Errorf("blksize too large: %d", n)
+	}
+	if s.maxBlockLen > 0 && n > s.maxBlockLen {
+		n = s.maxBlockLen
+		s.opts["blksize"] = strconv.Itoa(n)
 	}
 	s.send = make([]byte, n+4)
 	if s.sendA.enabled { /* senderAnticipate */

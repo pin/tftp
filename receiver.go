@@ -40,21 +40,22 @@ func (r *receiver) Size() (n int64, ok bool) {
 }
 
 type receiver struct {
-	send     []byte
-	receive  []byte
-	addr     *net.UDPAddr
-	localIP  net.IP
-	tid      int
-	conn     *net.UDPConn
-	block    uint16
-	retry    *backoff
-	timeout  time.Duration
-	retries  int
-	l        int
-	autoTerm bool
-	dally    bool
-	mode     string
-	opts     options
+	send        []byte
+	receive     []byte
+	addr        *net.UDPAddr
+	localIP     net.IP
+	tid         int
+	conn        *net.UDPConn
+	block       uint16
+	retry       *backoff
+	timeout     time.Duration
+	retries     int
+	l           int
+	autoTerm    bool
+	dally       bool
+	mode        string
+	opts        options
+	maxBlockLen int
 }
 
 func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
@@ -126,10 +127,14 @@ func (r *receiver) setBlockSize(blksize string) error {
 		return err
 	}
 	if n < 512 {
-		return fmt.Errorf("blkzise too small: %d", n)
+		return fmt.Errorf("blksize too small: %d", n)
 	}
 	if n > 65464 {
 		return fmt.Errorf("blksize too large: %d", n)
+	}
+	if r.maxBlockLen > 0 && n > r.maxBlockLen {
+		n = r.maxBlockLen
+		r.opts["blksize"] = strconv.Itoa(n)
 	}
 	r.receive = make([]byte, n+4)
 	return nil

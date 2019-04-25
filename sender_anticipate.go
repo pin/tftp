@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"time"
 )
 
 // the struct embedded into sender{} as sendA
@@ -97,7 +96,7 @@ func readFromAnticipate(s *sender, r io.Reader) (n int64, err error) {
 			return n, err
 		}
 		if kfillPartial {
-			s.conn.Close()
+			s.conn.close()
 			return n, nil
 		}
 		s.block += uint16(knum)
@@ -119,7 +118,7 @@ func (s *sender) sendWithRetryAnticipate() (*net.UDPAddr, error) {
 
 // derived from sendDatagram()
 func (s *sender) sendDatagramAnticipate() (*net.UDPAddr, error) {
-	err1 := s.conn.SetReadDeadline(time.Now().Add(s.timeout))
+	err1 := s.conn.setDeadline(s.timeout)
 	if err1 != nil {
 		return nil, err1
 	}
@@ -137,7 +136,7 @@ func (s *sender) sendDatagramAnticipate() (*net.UDPAddr, error) {
 			err = fmt.Errorf("lx smaller than 4")
 			break
 		}
-		_, errx := s.conn.WriteToUDP(s.sendA.sends[k][:lx], s.addr)
+		errx := s.conn.sendTo(s.sendA.sends[k][:lx], s.addr)
 		if errx != nil {
 			err = fmt.Errorf("k %v errx %v", k, errx.Error())
 			break
@@ -148,7 +147,7 @@ func (s *sender) sendDatagramAnticipate() (*net.UDPAddr, error) {
 	}
 	k := uint(0)
 	for {
-		n, addr, err := s.conn.ReadFromUDP(s.receive)
+		n, addr, err := s.conn.readFrom(s.receive)
 		if err != nil {
 			return nil, err
 		}

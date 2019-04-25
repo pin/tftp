@@ -31,7 +31,7 @@ type OutgoingTransfer interface {
 }
 
 type sender struct {
-	conn        *net.UDPConn
+	conn        connection
 	addr        *net.UDPAddr
 	localIP     net.IP
 	tid         int
@@ -107,7 +107,7 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 					s.abort(err)
 					return n, err
 				}
-				s.conn.Close()
+				s.conn.close()
 				return n, nil
 			}
 			s.abort(err)
@@ -120,7 +120,7 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 			return n, err
 		}
 		if l < len(s.send)-4 {
-			s.conn.Close()
+			s.conn.close()
 			return n, nil
 		}
 		s.block++
@@ -191,19 +191,20 @@ func (s *sender) sendWithRetry(l int) (*net.UDPAddr, error) {
 }
 
 func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
-	err := s.conn.SetReadDeadline(time.Now().Add(s.timeout))
+	err := s.conn.setDeadline(s.timeout)
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.conn.WriteToUDP(s.send[:l], s.addr)
+	err = s.conn.sendTo(s.send[:l], s.addr)
 	if err != nil {
 		return nil, err
 	}
 	for {
-		n, addr, err := s.conn.ReadFromUDP(s.receive)
+		n, addr, err := s.conn.readFrom(s.receive)
 		if err != nil {
 			return nil, err
 		}
+
 		if !addr.IP.Equal(s.addr.IP) || (s.tid != 0 && addr.Port != s.tid) {
 			continue
 		}
@@ -247,11 +248,11 @@ func (s *sender) abort(err error) error {
 		return nil
 	}
 	n := packERROR(s.send, 1, err.Error())
-	_, err = s.conn.WriteToUDP(s.send[:n], s.addr)
+	err = s.conn.sendTo(s.send[:n], s.addr)
 	if err != nil {
 		return err
 	}
-	s.conn.Close()
+	s.conn.close()
 	s.conn = nil
 	return nil
 }

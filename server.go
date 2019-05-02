@@ -17,35 +17,14 @@ import (
 // operation is disabled.
 func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 	writeHandler func(filename string, wt io.WriterTo) error) *Server {
-	s := newServerWithDefaults()
-	s.readHandler = readHandler
-	s.writeHandler = writeHandler
-	return s
-}
-
-// NewServerWithAddr creates a new server with read and write handlers
-// These handlers will have access to the remote address of the incoming connection
-func NewServerWithAddr(readHandlerWithAddr func(filename string, addr *net.UDPAddr, rf io.ReaderFrom) error,
-	writeWithAddrHandler func(filename string, addr *net.UDPAddr, wt io.WriterTo) error) *Server {
-	s := newServerWithDefaults()
-	s.readWithAddrHandler = readHandlerWithAddr
-	s.writeWithAddrHandler = writeWithAddrHandler
-	return s
-}
-
-func newServerWithDefaults() *Server {
 	s := &Server{
 		timeout:           defaultTimeout,
 		retries:           defaultRetries,
 		runGC:             make(chan []string),
 		gcInterval:        1 * time.Minute,
 		packetReadTimeout: 100 * time.Millisecond,
-	}
-	// pool to reuse packet buffers
-	s.bufPool = sync.Pool{
-		New: func() interface{} {
-			return make([]byte, datagramLength)
-		},
+		readHandler:       readHandler,
+		writeHandler:      writeHandler,
 	}
 	return s
 }
@@ -62,21 +41,19 @@ type RequestPacketInfo interface {
 }
 
 type Server struct {
-	readHandler          func(filename string, rf io.ReaderFrom) error
-	readWithAddrHandler  func(filename string, addr *net.UDPAddr, rf io.ReaderFrom) error
-	writeHandler         func(filename string, wt io.WriterTo) error
-	writeWithAddrHandler func(filename string, addr *net.UDPAddr, wt io.WriterTo) error
-	backoff              backoffFunc
-	conn                 *net.UDPConn
-	conn6                *ipv6.PacketConn
-	conn4                *ipv4.PacketConn
-	quit                 chan chan struct{}
-	wg                   sync.WaitGroup
-	timeout              time.Duration
-	retries              int
-	maxBlockLen          int
-	sendAEnable          bool /* senderAnticipate enable by server */
-	sendAWinSz           uint
+	readHandler  func(filename string, rf io.ReaderFrom) error
+	writeHandler func(filename string, wt io.WriterTo) error
+	backoff      backoffFunc
+	conn         *net.UDPConn
+	conn6        *ipv6.PacketConn
+	conn4        *ipv4.PacketConn
+	quit         chan chan struct{}
+	wg           sync.WaitGroup
+	timeout      time.Duration
+	retries      int
+	maxBlockLen  int
+	sendAEnable  bool /* senderAnticipate enable by server */
+	sendAWinSz   uint
 	// Single port fields
 	singlePort        bool
 	bufPool           sync.Pool
@@ -115,6 +92,11 @@ func (s *Server) EnableSinglePort() {
 	s.singlePort = true
 	s.handlers = make(map[string]chan []byte, datagramLength)
 	s.gcCollect = make(chan string)
+	s.bufPool = sync.Pool{
+		New: func() interface{} {
+			return make([]byte, datagramLength)
+		},
+	}
 	go s.internalGC()
 }
 
@@ -341,14 +323,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		s.wg.Add(1)
 		go func() {
-			if s.writeWithAddrHandler != nil {
-				err := s.writeWithAddrHandler(filename, remoteAddr, wt)
-				if err != nil {
-					wt.abort(err)
-				} else {
-					wt.terminate()
-				}
-			} else if s.writeHandler != nil {
+			if s.writeHandler != nil {
 				err := s.writeHandler(filename, wt)
 				if err != nil {
 					wt.abort(err)
@@ -400,12 +375,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		s.wg.Add(1)
 		go func() {
-			if s.readWithAddrHandler != nil {
-				err := s.readWithAddrHandler(filename, remoteAddr, rf)
-				if err != nil {
-					rf.abort(err)
-				}
-			} else if s.readHandler != nil {
+			if s.readHandler != nil {
 				err := s.readHandler(filename, rf)
 				if err != nil {
 					rf.abort(err)

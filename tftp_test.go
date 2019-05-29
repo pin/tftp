@@ -14,9 +14,11 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
+
+	"github.com/stretchr/testify/mock"
 )
 
-var localhost string = determineLocalhost()
+var localhost = determineLocalhost()
 
 func determineLocalhost() string {
 	l, err := net.ListenTCP("tcp", nil)
@@ -117,7 +119,7 @@ func TestZeroLength(t *testing.T) {
 func Test900(t *testing.T) {
 	s, c := makeTestServer(false)
 	defer s.Shutdown()
-	for i := 600; i < 4000; i += 1 {
+	for i := 600; i < 4000; i++ {
 		c.SetBlockSize(i)
 		s.SetBlockSize(4600 - i)
 		testSendReceive(t, c, 9000+int64(i))
@@ -149,6 +151,50 @@ func Test1810(t *testing.T) {
 	defer s.Shutdown()
 	c.SetBlockSize(1810)
 	testSendReceive(t, c, 9000+1810)
+}
+
+type fakeHook struct {
+	mock.Mock
+}
+
+func (f *fakeHook) OnSuccess(result TransferStats) {
+	f.Called(result)
+	return
+}
+func (f *fakeHook) OnFailure(result TransferStats, err error) {
+	f.Called(result)
+	return
+}
+
+func TestHookSuccess(t *testing.T) {
+	s, c := makeTestServer(false)
+	fakeHook := new(fakeHook)
+	// Due to the way tests run there will be some errors
+	fakeHook.On("OnFailure", mock.AnythingOfType("TransferStats")).Return()
+	fakeHook.On("OnSuccess", mock.AnythingOfType("TransferStats")).Return()
+	s.SetHook(fakeHook)
+	defer s.Shutdown()
+	c.SetBlockSize(1810)
+	testSendReceive(t, c, 9000+1810)
+	fakeHook.AssertCalled(t, "OnSuccess", mock.AnythingOfType("TransferStats"))
+	fakeHook.AssertNumberOfCalls(t, "OnSuccess", 1)
+}
+
+func TestHookFailure(t *testing.T) {
+	s, c := makeTestServer(false)
+	fakeHook := new(fakeHook)
+	fakeHook.On("OnFailure", mock.AnythingOfType("TransferStats")).Return()
+	s.SetHook(fakeHook)
+	defer s.Shutdown()
+	filename := "test-not-exists"
+	mode := "octet"
+	_, err := c.Receive(filename, mode)
+	if err == nil {
+		t.Fatalf("file not exists: %v", err)
+	}
+	t.Logf("receiving file that does not exist: %v", err)
+	fakeHook.AssertExpectations(t)
+	fakeHook.AssertNumberOfCalls(t, "OnFailure", 1)
 }
 
 func TestTSize(t *testing.T) {
@@ -799,16 +845,16 @@ func TestReadWriteErrors(t *testing.T) {
 	s := NewServer(
 		func(_ string, rf io.ReaderFrom) error {
 			_, err := rf.ReadFrom(&failingReader{}) // Read operation fails immediately.
-			if err != readError {
-				t.Errorf("want: %v, got: %v", readError, err)
+			if err != errRead {
+				t.Errorf("want: %v, got: %v", errRead, err)
 			}
 			// return no error from handler, client still should receive error
 			return nil
 		},
 		func(_ string, wt io.WriterTo) error {
 			_, err := wt.WriteTo(&failingWriter{}) // Write operation fails immediately.
-			if err != writeError {
-				t.Errorf("want: %v, got: %v", writeError, err)
+			if err != errWrite {
+				t.Errorf("want: %v, got: %v", errWrite, err)
 			}
 			// return no error from handler, client still should receive error
 			return nil
@@ -859,16 +905,16 @@ func TestReadWriteErrors(t *testing.T) {
 
 type failingReader struct{}
 
-var readError = errors.New("read error")
+var errRead = errors.New("read error")
 
-func (_ *failingReader) Read(_ []byte) (int, error) {
-	return 0, readError
+func (r *failingReader) Read(_ []byte) (int, error) {
+	return 0, errRead
 }
 
 type failingWriter struct{}
 
-var writeError = errors.New("write error")
+var errWrite = errors.New("write error")
 
-func (_ *failingWriter) Write(_ []byte) (int, error) {
-	return 0, writeError
+func (r *failingWriter) Write(_ []byte) (int, error) {
+	return 0, errWrite
 }

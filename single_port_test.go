@@ -10,7 +10,7 @@ func TestZeroLengthSinglePort(t *testing.T) {
 	testSendReceive(t, c, 0)
 }
 
-func TestSendReveiveSinglePort(t *testing.T) {
+func TestSendReceiveSinglePort(t *testing.T) {
 	s, c := makeTestServer(true)
 	defer s.Shutdown()
 	for i := 600; i < 1000; i++ {
@@ -18,7 +18,7 @@ func TestSendReveiveSinglePort(t *testing.T) {
 	}
 }
 
-func TestSendReveiveSinglePortWithBlockSize(t *testing.T) {
+func TestSendReceiveSinglePortWithBlockSize(t *testing.T) {
 	s, c := makeTestServer(true)
 	defer s.Shutdown()
 	for i := 600; i < 1000; i++ {

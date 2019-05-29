@@ -55,6 +55,7 @@ func (c *Client) RequestTSize(s bool) {
 	c.tsize = s
 }
 
+// Client stores data about a single TFTP client
 type Client struct {
 	addr    *net.UDPAddr
 	timeout time.Duration

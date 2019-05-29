@@ -9,7 +9,7 @@ import (
 func TestAnticipateWindow900(t *testing.T) {
 	s, c := makeTestServerAnticipateWindow()
 	defer s.Shutdown()
-	for i := 600; i < 4000; i += 1 {
+	for i := 600; i < 4000; i++ {
 		c.blksize = i
 		testSendReceive(t, c, 9000+int64(i))
 	}

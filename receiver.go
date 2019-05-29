@@ -43,6 +43,7 @@ type receiver struct {
 	send        []byte
 	receive     []byte
 	addr        *net.UDPAddr
+	filename    string
 	localIP     net.IP
 	tid         int
 	conn        connection
@@ -57,6 +58,7 @@ type receiver struct {
 	opts        options
 	singlePort  bool
 	maxBlockLen int
+	hook        Hook
 }
 
 func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
@@ -217,7 +219,12 @@ func (r *receiver) terminate() error {
 	if r.conn == nil {
 		return nil
 	}
-	defer r.conn.close()
+	defer func() {
+		if r.hook != nil {
+			r.hook.OnSuccess(r.buildTransferStats())
+		}
+		r.conn.close()
+	}()
 	binary.BigEndian.PutUint16(r.send[2:4], r.block)
 	if r.dally {
 		for i := 0; i < 3; i++ {
@@ -227,18 +234,31 @@ func (r *receiver) terminate() error {
 			}
 		}
 		return fmt.Errorf("dallying termination failed")
-	} else {
-		err := r.conn.sendTo(r.send[:4], r.addr)
-		if err != nil {
-			return err
-		}
+	}
+	err := r.conn.sendTo(r.send[:4], r.addr)
+	if err != nil {
+		return err
 	}
 	return nil
+}
+
+func (r *receiver) buildTransferStats() TransferStats {
+	return TransferStats{
+		RemoteAddr:  r.addr.IP,
+		Filename:    r.filename,
+		Tid:         r.tid,
+		TotalBlocks: r.block,
+		Mode:        r.mode,
+		Opts:        r.opts,
+	}
 }
 
 func (r *receiver) abort(err error) error {
 	if r.conn == nil {
 		return nil
+	}
+	if r.hook != nil {
+		r.hook.OnFailure(r.buildTransferStats(), err)
 	}
 	n := packERROR(r.send, 1, err.Error())
 	err = r.conn.sendTo(r.send[:n], r.addr)

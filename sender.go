@@ -33,6 +33,7 @@ type OutgoingTransfer interface {
 type sender struct {
 	conn        connection
 	addr        *net.UDPAddr
+	filename    string
 	localIP     net.IP
 	tid         int
 	send        []byte
@@ -45,6 +46,7 @@ type sender struct {
 	maxBlockLen int
 	mode        string
 	opts        options
+	hook        Hook
 }
 
 func (s *sender) RemoteAddr() net.UDPAddr { return *s.addr }
@@ -107,6 +109,9 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 					s.abort(err)
 					return n, err
 				}
+				if s.hook != nil {
+					s.hook.OnSuccess(s.buildTransferStats())
+				}
 				s.conn.close()
 				return n, nil
 			}
@@ -120,6 +125,9 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 			return n, err
 		}
 		if l < len(s.send)-4 {
+			if s.hook != nil {
+				s.hook.OnSuccess(s.buildTransferStats())
+			}
 			s.conn.close()
 			return n, nil
 		}
@@ -243,9 +251,24 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 	}
 }
 
+func (s *sender) buildTransferStats() TransferStats {
+	return TransferStats{
+		RemoteAddr:              s.addr.IP,
+		Filename:                s.filename,
+		Tid:                     s.tid,
+		SenderAnticipateEnabled: s.sendA.enabled,
+		TotalBlocks:             s.block,
+		Mode:                    s.mode,
+		Opts:                    s.opts,
+	}
+}
+
 func (s *sender) abort(err error) error {
 	if s.conn == nil {
 		return nil
+	}
+	if s.hook != nil {
+		s.hook.OnFailure(s.buildTransferStats(), err)
 	}
 	n := packERROR(s.send, 1, err.Error())
 	err = s.conn.sendTo(s.send[:n], s.addr)

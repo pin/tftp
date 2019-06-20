@@ -109,13 +109,13 @@ func packUnpack(t *testing.T, filename, mode string, opts options) {
 }
 
 func TestZeroLength(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	testSendReceive(t, c, 0)
 }
 
 func Test900(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	for i := 600; i < 4000; i += 1 {
 		c.SetBlockSize(i)
@@ -125,7 +125,7 @@ func Test900(t *testing.T) {
 }
 
 func Test1000(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	for i := int64(0); i < 5000; i++ {
 		filename := fmt.Sprintf("length-%d-bytes-%d", i, time.Now().UnixNano())
@@ -145,21 +145,21 @@ func Test1000(t *testing.T) {
 }
 
 func Test1810(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	c.SetBlockSize(1810)
 	testSendReceive(t, c, 9000+1810)
 }
 
 func TestTSize(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	c.tsize = true
 	testSendReceive(t, c, 640)
 }
 
 func TestNearBlockLength(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	for i := 450; i < 520; i++ {
 		testSendReceive(t, c, int64(i))
@@ -167,7 +167,7 @@ func TestNearBlockLength(t *testing.T) {
 }
 
 func TestBlockWrapsAround(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	n := 65535 * 512
 	for i := n - 2; i < n+2; i++ {
@@ -176,7 +176,7 @@ func TestBlockWrapsAround(t *testing.T) {
 }
 
 func TestRandomLength(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	r := rand.New(rand.NewSource(42))
 	for i := 0; i < 100; i++ {
@@ -185,13 +185,13 @@ func TestRandomLength(t *testing.T) {
 }
 
 func TestBigFile(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	testSendReceive(t, c, 3*1000*1000)
 }
 
 func TestByOneByte(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	filename := "test-by-one-byte"
 	mode := "octet"
@@ -229,7 +229,7 @@ func TestByOneByte(t *testing.T) {
 }
 
 func TestDuplicate(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	filename := "test-duplicate"
 	mode := "octet"
@@ -251,7 +251,7 @@ func TestDuplicate(t *testing.T) {
 }
 
 func TestNotFound(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	defer s.Shutdown()
 	filename := "test-not-exists"
 	mode := "octet"
@@ -361,12 +361,16 @@ type testBackend struct {
 	mu sync.Mutex
 }
 
-func makeTestServer() (*Server, *Client) {
+func makeTestServer(singlePort bool) (*Server, *Client) {
 	b := &testBackend{}
 	b.m = make(map[string][]byte)
 
 	// Create server
 	s := NewServer(b.handleRead, b.handleWrite)
+
+	if singlePort {
+		s.EnableSinglePort()
+	}
 
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
@@ -480,8 +484,7 @@ func (r *randReader) Read(p []byte) (n int, err error) {
 	return
 }
 
-func TestServerSendTimeout(t *testing.T) {
-	s, c := makeTestServer()
+func serverTimeoutSendTest(s *Server, c *Client, t *testing.T) {
 	s.SetTimeout(time.Second)
 	s.SetRetries(2)
 	var serverErr error
@@ -509,10 +512,15 @@ func TestServerSendTimeout(t *testing.T) {
 	if !netErr.Timeout() {
 		t.Fatalf("timout is expected: %v", serverErr)
 	}
+
 }
 
-func TestServerReceiveTimeout(t *testing.T) {
-	s, c := makeTestServer()
+func TestServerSendTimeout(t *testing.T) {
+	s, c := makeTestServer(false)
+	serverTimeoutSendTest(s, c, t)
+}
+
+func serverReceiveTimeoutTest(s *Server, c *Client, t *testing.T) {
 	s.SetTimeout(time.Second)
 	s.SetRetries(2)
 	var serverErr error
@@ -543,8 +551,13 @@ func TestServerReceiveTimeout(t *testing.T) {
 	}
 }
 
+func TestServerReceiveTimeout(t *testing.T) {
+	s, c := makeTestServer(false)
+	serverReceiveTimeoutTest(s, c, t)
+}
+
 func TestClientReceiveTimeout(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	c.SetTimeout(time.Second)
 	c.SetRetries(2)
 	s.readHandler = func(filename string, rf io.ReaderFrom) error {
@@ -575,7 +588,7 @@ func TestClientReceiveTimeout(t *testing.T) {
 }
 
 func TestClientSendTimeout(t *testing.T) {
-	s, c := makeTestServer()
+	s, c := makeTestServer(false)
 	c.SetTimeout(time.Second)
 	c.SetRetries(2)
 	s.writeHandler = func(filename string, wt io.WriterTo) error {

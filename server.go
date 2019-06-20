@@ -17,12 +17,16 @@ import (
 // operation is disabled.
 func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 	writeHandler func(filename string, wt io.WriterTo) error) *Server {
-	return &Server{
-		readHandler:  readHandler,
-		writeHandler: writeHandler,
-		timeout:      defaultTimeout,
-		retries:      defaultRetries,
+	s := &Server{
+		timeout:           defaultTimeout,
+		retries:           defaultRetries,
+		runGC:             make(chan []string),
+		gcInterval:        1 * time.Minute,
+		packetReadTimeout: 100 * time.Millisecond,
+		readHandler:       readHandler,
+		writeHandler:      writeHandler,
 	}
+	return s
 }
 
 // RequestPacketInfo provides a method of getting the local IP address
@@ -41,6 +45,8 @@ type Server struct {
 	writeHandler func(filename string, wt io.WriterTo) error
 	backoff      backoffFunc
 	conn         *net.UDPConn
+	conn6        *ipv6.PacketConn
+	conn4        *ipv4.PacketConn
 	quit         chan chan struct{}
 	wg           sync.WaitGroup
 	timeout      time.Duration
@@ -48,6 +54,14 @@ type Server struct {
 	maxBlockLen  int
 	sendAEnable  bool /* senderAnticipate enable by server */
 	sendAWinSz   uint
+	// Single port fields
+	singlePort        bool
+	bufPool           sync.Pool
+	handlers          map[string]chan []byte
+	runGC             chan []string
+	gcCollect         chan string
+	gcInterval        time.Duration
+	packetReadTimeout time.Duration
 }
 
 // SetAnticipate provides an experimental feature in which when a packets
@@ -67,6 +81,23 @@ func (s *Server) SetAnticipate(winsz uint) {
 		s.sendAEnable = false
 		s.sendAWinSz = 1
 	}
+}
+
+// EnableSinglePort enables an experimental mode where the server will
+// serve all connections on port 69 only. There will be no random TIDs
+// on the server side.
+//
+// Enabling this will negatively impact performance
+func (s *Server) EnableSinglePort() {
+	s.singlePort = true
+	s.handlers = make(map[string]chan []byte, datagramLength)
+	s.gcCollect = make(chan string)
+	s.bufPool = sync.Pool{
+		New: func() interface{} {
+			return make([]byte, datagramLength)
+		},
+	}
+	go s.internalGC()
 }
 
 // SetTimeout sets maximum time server waits for single network
@@ -142,40 +173,43 @@ func (s *Server) Serve(conn *net.UDPConn) error {
 	if addr == nil {
 		return fmt.Errorf("Failed to determine IP class of listening address")
 	}
-	var conn4 *ipv4.PacketConn
-	var conn6 *ipv6.PacketConn
 	if addr.To4() != nil {
-		conn4 = ipv4.NewPacketConn(conn)
-		if err := conn4.SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true); err != nil {
-			conn4 = nil
+		s.conn4 = ipv4.NewPacketConn(conn)
+		if err := s.conn4.SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true); err != nil {
+			s.conn4 = nil
 		}
 	} else {
-		conn6 = ipv6.NewPacketConn(conn)
-		if err := conn6.SetControlMessage(ipv6.FlagDst|ipv6.FlagInterface, true); err != nil {
-			conn6 = nil
+		s.conn6 = ipv6.NewPacketConn(conn)
+		if err := s.conn6.SetControlMessage(ipv6.FlagDst|ipv6.FlagInterface, true); err != nil {
+			s.conn6 = nil
 		}
 	}
 
 	s.quit = make(chan chan struct{})
-	for {
-		select {
-		case q := <-s.quit:
-			q <- struct{}{}
-			return nil
-		default:
-			var err error
-			if conn4 != nil {
-				err = s.processRequest4(conn4)
-			} else if conn6 != nil {
-				err = s.processRequest6(conn6)
-			} else {
-				err = s.processRequest()
-			}
-			if err != nil {
-				// TODO: add logging handler
+	if s.singlePort {
+		s.singlePortProcessRequests()
+	} else {
+		for {
+			select {
+			case q := <-s.quit:
+				q <- struct{}{}
+				return nil
+			default:
+				var err error
+				if s.conn4 != nil {
+					err = s.processRequest4()
+				} else if s.conn6 != nil {
+					err = s.processRequest6()
+				} else {
+					err = s.processRequest()
+				}
+				if err != nil {
+					// TODO: add logging handler
+				}
 			}
 		}
 	}
+	return nil
 }
 
 // Yes, I don't really like having seperate IPv4 and IPv6 variants,
@@ -186,9 +220,9 @@ func (s *Server) Serve(conn *net.UDPConn) error {
 // If control is nil for whatever reason (either things not being
 // implemented on a target OS or whatever other reason), localIP
 // (and hence LocalIP()) will return a nil IP address.
-func (s *Server) processRequest4(conn4 *ipv4.PacketConn) error {
+func (s *Server) processRequest4() error {
 	buf := make([]byte, datagramLength)
-	cnt, control, srcAddr, err := conn4.ReadFrom(buf)
+	cnt, control, srcAddr, err := s.conn4.ReadFrom(buf)
 	if err != nil {
 		return fmt.Errorf("reading UDP: %v", err)
 	}
@@ -201,12 +235,12 @@ func (s *Server) processRequest4(conn4 *ipv4.PacketConn) error {
 			maxSz = intf.MTU - 28
 		}
 	}
-	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, maxSz)
+	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, maxSz, nil)
 }
 
-func (s *Server) processRequest6(conn6 *ipv6.PacketConn) error {
+func (s *Server) processRequest6() error {
 	buf := make([]byte, datagramLength)
-	cnt, control, srcAddr, err := conn6.ReadFrom(buf)
+	cnt, control, srcAddr, err := s.conn6.ReadFrom(buf)
 	if err != nil {
 		return fmt.Errorf("reading UDP: %v", err)
 	}
@@ -219,7 +253,7 @@ func (s *Server) processRequest6(conn6 *ipv6.PacketConn) error {
 			maxSz = intf.MTU - 48
 		}
 	}
-	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, maxSz)
+	return s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, maxSz, nil)
 }
 
 // Fallback if we had problems opening a ipv4/6 control channel
@@ -229,7 +263,7 @@ func (s *Server) processRequest() error {
 	if err != nil {
 		return fmt.Errorf("reading UDP: %v", err)
 	}
-	return s.handlePacket(nil, srcAddr, buf, cnt, blockLength)
+	return s.handlePacket(nil, srcAddr, buf, cnt, blockLength, nil)
 }
 
 // Shutdown make server stop listening for new requests, allows
@@ -242,7 +276,7 @@ func (s *Server) Shutdown() {
 	s.wg.Wait()
 }
 
-func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int) error {
+func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) error {
 	if s.maxBlockLen > 0 && s.maxBlockLen < maxBlockLen {
 		maxBlockLen = s.maxBlockLen
 	}
@@ -260,18 +294,9 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		if err != nil {
 			return fmt.Errorf("unpack WRQ: %v", err)
 		}
-		//fmt.Printf("got WRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
-		conn, err := net.ListenUDP("udp", listenAddr)
-		if err != nil {
-			return err
-		}
-		if err != nil {
-			return fmt.Errorf("open transmission: %v", err)
-		}
 		wt := &receiver{
 			send:        make([]byte, datagramLength),
 			receive:     make([]byte, datagramLength),
-			conn:        conn,
 			retry:       &backoff{handler: s.backoff},
 			timeout:     s.timeout,
 			retries:     s.retries,
@@ -280,6 +305,22 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			mode:        mode,
 			opts:        opts,
 			maxBlockLen: maxBlockLen,
+		}
+		if s.singlePort {
+			wt.conn = &chanConnection{
+				addr:     remoteAddr,
+				channel:  listener,
+				timeout:  s.timeout,
+				sendConn: s.conn,
+				complete: s.gcCollect,
+			}
+			wt.singlePort = true
+		} else {
+			conn, err := net.ListenUDP("udp", listenAddr)
+			if err != nil {
+				return err
+			}
+			wt.conn = &connConnection{conn: conn}
 		}
 		s.wg.Add(1)
 		go func() {
@@ -300,17 +341,11 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		if err != nil {
 			return fmt.Errorf("unpack RRQ: %v", err)
 		}
-		//fmt.Printf("got RRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
-		conn, err := net.ListenUDP("udp", listenAddr)
-		if err != nil {
-			return err
-		}
 		rf := &sender{
 			send:        make([]byte, datagramLength),
 			sendA:       senderAnticipate{enabled: false},
 			receive:     make([]byte, datagramLength),
 			tid:         remoteAddr.Port,
-			conn:        conn,
 			retry:       &backoff{handler: s.backoff},
 			timeout:     s.timeout,
 			retries:     s.retries,
@@ -319,6 +354,21 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			mode:        mode,
 			opts:        opts,
 			maxBlockLen: maxBlockLen,
+		}
+		if s.singlePort {
+			rf.conn = &chanConnection{
+				addr:     remoteAddr,
+				channel:  listener,
+				timeout:  s.timeout,
+				sendConn: s.conn,
+				complete: s.gcCollect,
+			}
+		} else {
+			conn, err := net.ListenUDP("udp", listenAddr)
+			if err != nil {
+				return err
+			}
+			rf.conn = &connConnection{conn: conn}
 		}
 		if s.sendAEnable { /* senderAnticipate if enabled in server */
 			rf.sendA.enabled = true /* pass enable from server to sender */

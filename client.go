@@ -73,7 +73,7 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 	s := &sender{
 		send:    make([]byte, datagramLength),
 		receive: make([]byte, datagramLength),
-		conn:    conn,
+		conn:    &connConnection{conn: conn},
 		retry:   &backoff{handler: c.backoff},
 		timeout: c.timeout,
 		retries: c.retries,
@@ -106,7 +106,7 @@ func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 	r := &receiver{
 		send:     make([]byte, datagramLength),
 		receive:  make([]byte, datagramLength),
-		conn:     conn,
+		conn:     &connConnection{conn: conn},
 		retry:    &backoff{handler: c.backoff},
 		timeout:  c.timeout,
 		retries:  c.retries,

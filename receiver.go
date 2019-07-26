@@ -59,6 +59,7 @@ type receiver struct {
 	singlePort  bool
 	maxBlockLen int
 	hook        Hook
+	startTime   time.Time
 }
 
 func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
@@ -250,6 +251,7 @@ func (r *receiver) buildTransferStats() TransferStats {
 		TotalBlocks: r.block,
 		Mode:        r.mode,
 		Opts:        r.opts,
+		Duration:    time.Now().Sub(r.startTime),
 	}
 }
 

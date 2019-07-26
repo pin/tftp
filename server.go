@@ -75,6 +75,7 @@ type TransferStats struct {
 	TotalBlocks             uint16
 	Mode                    string
 	Opts                    options
+	Duration                time.Duration
 }
 
 // Hook is an interface used to provide the server with success and failure hooks
@@ -332,6 +333,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			maxBlockLen: maxBlockLen,
 			hook:        s.hook,
 			filename:    filename,
+			startTime:   time.Now(),
 		}
 		if s.singlePort {
 			wt.conn = &chanConnection{
@@ -383,6 +385,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			maxBlockLen: maxBlockLen,
 			hook:        s.hook,
 			filename:    filename,
+			startTime:   time.Now(),
 		}
 		if s.singlePort {
 			rf.conn = &chanConnection{

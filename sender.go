@@ -47,6 +47,7 @@ type sender struct {
 	mode        string
 	opts        options
 	hook        Hook
+	startTime   time.Time
 }
 
 func (s *sender) RemoteAddr() net.UDPAddr { return *s.addr }
@@ -260,6 +261,7 @@ func (s *sender) buildTransferStats() TransferStats {
 		TotalBlocks:             s.block,
 		Mode:                    s.mode,
 		Opts:                    s.opts,
+		Duration:                time.Now().Sub(s.startTime),
 	}
 }
 

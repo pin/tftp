@@ -122,7 +122,7 @@ func (s *sender) sendDatagramAnticipate() (*net.UDPAddr, error) {
 	if err1 != nil {
 		return nil, err1
 	}
-	var err error = nil
+	var err error
 	ksz := uint(len(s.sendA.sends))
 	knum := s.sendA.num
 	if knum > ksz {

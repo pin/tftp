@@ -21,7 +21,7 @@ func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 		timeout:           defaultTimeout,
 		retries:           defaultRetries,
 		runGC:             make(chan []string),
-		gcInterval:        1 * time.Minute,
+		gcThreshold:       100,
 		packetReadTimeout: 100 * time.Millisecond,
 		readHandler:       readHandler,
 		writeHandler:      writeHandler,
@@ -40,9 +40,11 @@ type RequestPacketInfo interface {
 	LocalIP() net.IP
 }
 
+// Server is an instance of a TFTP server
 type Server struct {
 	readHandler  func(filename string, rf io.ReaderFrom) error
 	writeHandler func(filename string, wt io.WriterTo) error
+	hook         Hook
 	backoff      backoffFunc
 	conn         *net.UDPConn
 	conn6        *ipv6.PacketConn
@@ -60,8 +62,26 @@ type Server struct {
 	handlers          map[string]chan []byte
 	runGC             chan []string
 	gcCollect         chan string
-	gcInterval        time.Duration
+	gcThreshold       int
 	packetReadTimeout time.Duration
+}
+
+// TransferStats contains details about a single TFTP transfer
+type TransferStats struct {
+	RemoteAddr              net.IP
+	Filename                string
+	Tid                     int
+	SenderAnticipateEnabled bool
+	TotalBlocks             uint16
+	Mode                    string
+	Opts                    options
+	Duration                time.Duration
+}
+
+// Hook is an interface used to provide the server with success and failure hooks
+type Hook interface {
+	OnSuccess(stats TransferStats)
+	OnFailure(stats TransferStats, err error)
 }
 
 // SetAnticipate provides an experimental feature in which when a packets
@@ -81,6 +101,11 @@ func (s *Server) SetAnticipate(winsz uint) {
 		s.sendAEnable = false
 		s.sendAWinSz = 1
 	}
+}
+
+// SetHook sets the Hook for success and failure of transfers
+func (s *Server) SetHook(hook Hook) {
+	s.hook = hook
 }
 
 // EnableSinglePort enables an experimental mode where the server will
@@ -203,8 +228,10 @@ func (s *Server) Serve(conn *net.UDPConn) error {
 				} else {
 					err = s.processRequest()
 				}
-				if err != nil {
-					// TODO: add logging handler
+				if err != nil && s.hook != nil {
+					s.hook.OnFailure(TransferStats{
+						SenderAnticipateEnabled: s.sendAEnable,
+					}, err)
 				}
 			}
 		}
@@ -304,6 +331,9 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			mode:        mode,
 			opts:        opts,
 			maxBlockLen: maxBlockLen,
+			hook:        s.hook,
+			filename:    filename,
+			startTime:   time.Now(),
 		}
 		if s.singlePort {
 			wt.conn = &chanConnection{
@@ -353,6 +383,9 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			mode:        mode,
 			opts:        opts,
 			maxBlockLen: maxBlockLen,
+			hook:        s.hook,
+			filename:    filename,
+			startTime:   time.Now(),
 		}
 		if s.singlePort {
 			rf.conn = &chanConnection{

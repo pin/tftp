@@ -2,7 +2,6 @@ package tftp
 
 import (
 	"net"
-	"time"
 )
 
 func (s *Server) singlePortProcessRequests() error {
@@ -18,7 +17,15 @@ func (s *Server) singlePortProcessRequests() error {
 			// We've received a new connection on the same IP+Port tuple
 			// as a previous connection before garbage collection has occured
 			s.handlers[srcAddr.String()] = make(chan []byte)
-			go s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, blockLength, s.handlers[srcAddr.String()])
+			go func(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) {
+				err := s.handlePacket(localAddr, remoteAddr, buffer, n, maxBlockLen, listener)
+				if err != nil && s.hook != nil {
+					s.hook.OnFailure(TransferStats{
+						SenderAnticipateEnabled: s.sendAEnable,
+					}, err)
+				}
+
+			}(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, blockLength, s.handlers[srcAddr.String()])
 			s.singlePortProcessRequests()
 		}
 	}()
@@ -29,13 +36,17 @@ func (s *Server) singlePortProcessRequests() error {
 			return nil
 		case handlersToFree := <-s.runGC:
 			for _, handler := range handlersToFree {
-				s.handlers[handler] = nil
+				delete(s.handlers, handler)
 			}
 		default:
 			buf = s.bufPool.Get().([]byte)
 			cnt, localAddr, srcAddr, err = s.getPacket(buf)
 			if err != nil || cnt == 0 {
-				// TODO: add logging handler
+				if s.hook != nil {
+					s.hook.OnFailure(TransferStats{
+						SenderAnticipateEnabled: s.sendAEnable,
+					}, err)
+				}
 				s.bufPool.Put(buf)
 				continue
 			}
@@ -47,7 +58,15 @@ func (s *Server) singlePortProcessRequests() error {
 				}
 			} else {
 				s.handlers[srcAddr.String()] = make(chan []byte, datagramLength)
-				go s.handlePacket(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, blockLength, s.handlers[srcAddr.String()])
+				go func(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) {
+					err := s.handlePacket(localAddr, remoteAddr, buffer, n, maxBlockLen, listener)
+					if err != nil && s.hook != nil {
+						s.hook.OnFailure(TransferStats{
+							SenderAnticipateEnabled: s.sendAEnable,
+						}, err)
+					}
+
+				}(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, blockLength, s.handlers[srcAddr.String()])
 			}
 		}
 	}
@@ -55,9 +74,6 @@ func (s *Server) singlePortProcessRequests() error {
 
 func (s *Server) getPacket(buf []byte) (int, net.IP, *net.UDPAddr, error) {
 	if s.conn6 != nil {
-		// TODO: investigate why deadline is necessary
-		// ReadFrom seems to behave badly without it
-		s.conn6.SetReadDeadline(time.Now().Add(s.packetReadTimeout))
 		cnt, control, srcAddr, err := s.conn6.ReadFrom(buf)
 		if err != nil || cnt == 0 {
 			return 0, nil, nil, err
@@ -68,7 +84,6 @@ func (s *Server) getPacket(buf []byte) (int, net.IP, *net.UDPAddr, error) {
 		}
 		return cnt, localAddr, srcAddr.(*net.UDPAddr), nil
 	} else if s.conn4 != nil {
-		s.conn4.SetReadDeadline(time.Now().Add(s.packetReadTimeout))
 		cnt, control, srcAddr, err := s.conn4.ReadFrom(buf)
 		if err != nil || cnt == 0 {
 			return 0, nil, nil, err
@@ -95,9 +110,10 @@ func (s *Server) internalGC() {
 		select {
 		case newHandler := <-s.gcCollect:
 			completedHandlers = append(completedHandlers, newHandler)
-		case <-time.After(s.gcInterval):
-			s.runGC <- completedHandlers
-			completedHandlers = nil
+			if len(completedHandlers) > s.gcThreshold {
+				s.runGC <- completedHandlers
+				completedHandlers = nil
+			}
 		}
 	}
 }

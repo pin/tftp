@@ -6,17 +6,17 @@ import (
 
 func (s *Server) singlePortProcessRequests() error {
 	var (
-		localAddr net.IP
-		cnt       int
-		srcAddr   net.Addr
-		err       error
-		buf       []byte
+		localAddr  net.IP
+		cnt, maxSz int
+		srcAddr    net.Addr
+		err        error
+		buf        []byte
 	)
 	defer func() {
 		if r := recover(); r != nil {
 			// We've received a new connection on the same IP+Port tuple
 			// as a previous connection before garbage collection has occured
-			s.handlers[srcAddr.String()] = make(chan []byte)
+			s.handlers[srcAddr.String()] = make(chan []byte, 1)
 			go func(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) {
 				err := s.handlePacket(localAddr, remoteAddr, buffer, n, maxBlockLen, listener)
 				if err != nil && s.hook != nil {
@@ -25,7 +25,7 @@ func (s *Server) singlePortProcessRequests() error {
 					}, err)
 				}
 
-			}(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, blockLength, s.handlers[srcAddr.String()])
+			}(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, maxSz, s.handlers[srcAddr.String()])
 			s.singlePortProcessRequests()
 		}
 	}()
@@ -40,7 +40,7 @@ func (s *Server) singlePortProcessRequests() error {
 			}
 		default:
 			buf = s.bufPool.Get().([]byte)
-			cnt, localAddr, srcAddr, err = s.getPacket(buf)
+			cnt, localAddr, srcAddr, maxSz, err = s.getPacket(buf)
 			if err != nil || cnt == 0 {
 				if s.hook != nil {
 					s.hook.OnFailure(TransferStats{
@@ -57,7 +57,7 @@ func (s *Server) singlePortProcessRequests() error {
 					// We don't want to block the main loop if a channel is full
 				}
 			} else {
-				s.handlers[srcAddr.String()] = make(chan []byte, datagramLength)
+				s.handlers[srcAddr.String()] = make(chan []byte, 1)
 				go func(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) {
 					err := s.handlePacket(localAddr, remoteAddr, buffer, n, maxBlockLen, listener)
 					if err != nil && s.hook != nil {
@@ -66,39 +66,49 @@ func (s *Server) singlePortProcessRequests() error {
 						}, err)
 					}
 
-				}(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, blockLength, s.handlers[srcAddr.String()])
+				}(localAddr, srcAddr.(*net.UDPAddr), buf, cnt, maxSz, s.handlers[srcAddr.String()])
 			}
 		}
 	}
 }
 
-func (s *Server) getPacket(buf []byte) (int, net.IP, *net.UDPAddr, error) {
+func (s *Server) getPacket(buf []byte) (int, net.IP, *net.UDPAddr, int, error) {
 	if s.conn6 != nil {
 		cnt, control, srcAddr, err := s.conn6.ReadFrom(buf)
 		if err != nil || cnt == 0 {
-			return 0, nil, nil, err
+			return 0, nil, nil, 0, err
 		}
 		var localAddr net.IP
+		maxSz := blockLength
 		if control != nil {
 			localAddr = control.Dst
+			if intf, err := net.InterfaceByIndex(control.IfIndex); err == nil {
+				// mtu - ipv4 overhead - udp overhead
+				maxSz = intf.MTU - 28
+			}
 		}
-		return cnt, localAddr, srcAddr.(*net.UDPAddr), nil
+		return cnt, localAddr, srcAddr.(*net.UDPAddr), maxSz, nil
 	} else if s.conn4 != nil {
 		cnt, control, srcAddr, err := s.conn4.ReadFrom(buf)
 		if err != nil || cnt == 0 {
-			return 0, nil, nil, err
+			return 0, nil, nil, 0, err
 		}
 		var localAddr net.IP
+		maxSz := blockLength
 		if control != nil {
 			localAddr = control.Dst
+			if intf, err := net.InterfaceByIndex(control.IfIndex); err == nil {
+				// mtu - ipv6 overhead - udp overhead
+				maxSz = intf.MTU - 48
+			}
 		}
-		return cnt, localAddr, srcAddr.(*net.UDPAddr), nil
+		return cnt, localAddr, srcAddr.(*net.UDPAddr), maxSz, nil
 	} else {
 		cnt, srcAddr, err := s.conn.ReadFromUDP(buf)
 		if err != nil {
-			return 0, nil, nil, err
+			return 0, nil, nil, 0, err
 		}
-		return cnt, nil, srcAddr, nil
+		return cnt, nil, srcAddr, blockLength, nil
 	}
 }
 

@@ -72,10 +72,11 @@ type TransferStats struct {
 	Filename                string
 	Tid                     int
 	SenderAnticipateEnabled bool
-	TotalBlocks             uint16
 	Mode                    string
 	Opts                    options
 	Duration                time.Duration
+	DatagramsSent           int
+	DatagramsAcked          int
 }
 
 // Hook is an interface used to provide the server with success and failure hooks
@@ -115,11 +116,14 @@ func (s *Server) SetHook(hook Hook) {
 // Enabling this will negatively impact performance
 func (s *Server) EnableSinglePort() {
 	s.singlePort = true
-	s.handlers = make(map[string]chan []byte, datagramLength)
+	s.handlers = make(map[string]chan []byte)
 	s.gcCollect = make(chan string)
+	if s.maxBlockLen == 0 {
+		s.maxBlockLen = blockLength
+	}
 	s.bufPool = sync.Pool{
 		New: func() interface{} {
-			return make([]byte, datagramLength)
+			return make([]byte, s.maxBlockLen+4)
 		},
 	}
 	go s.internalGC()
@@ -296,7 +300,9 @@ func (s *Server) processRequest() error {
 // Shutdown make server stop listening for new requests, allows
 // server to finish outstanding transfers and stops server.
 func (s *Server) Shutdown() {
-	s.conn.Close()
+	if !s.singlePort {
+		s.conn.Close()
+	}
 	q := make(chan struct{})
 	s.quit <- q
 	<-q

@@ -31,23 +31,25 @@ type OutgoingTransfer interface {
 }
 
 type sender struct {
-	conn        connection
-	addr        *net.UDPAddr
-	filename    string
-	localIP     net.IP
-	tid         int
-	send        []byte
-	sendA       senderAnticipate
-	receive     []byte
-	retry       *backoff
-	timeout     time.Duration
-	retries     int
-	block       uint16
-	maxBlockLen int
-	mode        string
-	opts        options
-	hook        Hook
-	startTime   time.Time
+	conn           connection
+	addr           *net.UDPAddr
+	filename       string
+	localIP        net.IP
+	tid            int
+	send           []byte
+	sendA          senderAnticipate
+	receive        []byte
+	retry          *backoff
+	timeout        time.Duration
+	retries        int
+	block          uint16
+	maxBlockLen    int
+	mode           string
+	opts           options
+	hook           Hook
+	startTime      time.Time
+	datagramsSent  int
+	datagramsAcked int
 }
 
 func (s *sender) RemoteAddr() net.UDPAddr { return *s.addr }
@@ -208,6 +210,7 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.datagramsSent++
 	for {
 		n, addr, err := s.conn.readFrom(s.receive)
 		if err != nil {
@@ -225,6 +228,7 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 		switch p := p.(type) {
 		case pACK:
 			if p.block() == s.block {
+				s.datagramsAcked++
 				return addr, nil
 			}
 		case pOACK:
@@ -258,10 +262,11 @@ func (s *sender) buildTransferStats() TransferStats {
 		Filename:                s.filename,
 		Tid:                     s.tid,
 		SenderAnticipateEnabled: s.sendA.enabled,
-		TotalBlocks:             s.block,
 		Mode:                    s.mode,
 		Opts:                    s.opts,
 		Duration:                time.Now().Sub(s.startTime),
+		DatagramsSent:           s.datagramsSent,
+		DatagramsAcked:          s.datagramsAcked,
 	}
 }
 

@@ -81,19 +81,11 @@ func makeError(addr string) net.Error {
 }
 
 func (c *connConnection) readFrom(buffer []byte) (int, *net.UDPAddr, error) {
-	n, addr, err := c.conn.ReadFromUDP(buffer)
-	if err != nil {
-		return 0, nil, err
-	}
-	return n, addr, nil
+	return c.conn.ReadFromUDP(buffer)
 }
 
 func (c *connConnection) setDeadline(deadline time.Duration) error {
-	err := c.conn.SetReadDeadline(time.Now().Add(deadline))
-	if err != nil {
-		return err
-	}
-	return nil
+	return c.conn.SetReadDeadline(time.Now().Add(deadline))
 }
 
 func (c *connConnection) close() {

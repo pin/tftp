@@ -168,24 +168,35 @@ func (f *fakeHook) OnFailure(result TransferStats, err error) {
 
 func TestHookSuccess(t *testing.T) {
 	s, c := makeTestServer(false)
-	fakeHook := new(fakeHook)
-	// Due to the way tests run there will be some errors
-	fakeHook.On("OnFailure", mock.AnythingOfType("TransferStats")).Return()
-	fakeHook.On("OnSuccess", mock.AnythingOfType("TransferStats")).Return()
-	s.SetHook(fakeHook)
-	defer s.Shutdown()
+	fakeHookTemp := new(fakeHook)
+	// Due to the way test are run there will always be some failures
+	fakeHookTemp.On("OnFailure", mock.AnythingOfType("TransferStats")).Return()
+	fakeHookTemp.On("OnSuccess", mock.AnythingOfType("TransferStats")).Return()
+	s.SetHook(fakeHookTemp)
 	c.SetBlockSize(1810)
-	testSendReceive(t, c, 9000+1810)
-	fakeHook.AssertCalled(t, "OnSuccess", mock.AnythingOfType("TransferStats"))
-	fakeHook.AssertNumberOfCalls(t, "OnSuccess", 1)
+	length := int64(9000)
+	filename := fmt.Sprintf("length-%d-bytes-%d", length, time.Now().UnixNano())
+	rf, err := c.Send(filename, "octet")
+	if err != nil {
+		t.Fatalf("requesting %s write: %v", filename, err)
+	}
+	r := io.LimitReader(newRandReader(rand.NewSource(length)), length)
+	n, err := rf.ReadFrom(r)
+	if err != nil {
+		t.Fatalf("sending %s: %v", filename, err)
+	}
+	if n != length {
+		t.Errorf("%s length mismatch: %d != %d", filename, n, length)
+	}
+	s.Shutdown()
+	fakeHookTemp.AssertNumberOfCalls(t, "OnSuccess", 1)
 }
 
 func TestHookFailure(t *testing.T) {
 	s, c := makeTestServer(false)
-	fakeHook := new(fakeHook)
-	fakeHook.On("OnFailure", mock.AnythingOfType("TransferStats")).Return()
-	s.SetHook(fakeHook)
-	defer s.Shutdown()
+	fakeHookTemp := new(fakeHook)
+	fakeHookTemp.On("OnFailure", mock.AnythingOfType("TransferStats")).Return()
+	s.SetHook(fakeHookTemp)
 	filename := "test-not-exists"
 	mode := "octet"
 	_, err := c.Receive(filename, mode)
@@ -193,8 +204,8 @@ func TestHookFailure(t *testing.T) {
 		t.Fatalf("file not exists: %v", err)
 	}
 	t.Logf("receiving file that does not exist: %v", err)
-	fakeHook.AssertExpectations(t)
-	fakeHook.AssertNumberOfCalls(t, "OnFailure", 1)
+	s.Shutdown()
+	fakeHookTemp.AssertExpectations(t)
 }
 
 func TestTSize(t *testing.T) {
@@ -415,6 +426,8 @@ func makeTestServer(singlePort bool) (*Server, *Client) {
 	s := NewServer(b.handleRead, b.handleWrite)
 
 	if singlePort {
+		s.SetBlockSize(2000)
+		s.gcThreshold = 100000
 		s.EnableSinglePort()
 	}
 

@@ -40,26 +40,28 @@ func (r *receiver) Size() (n int64, ok bool) {
 }
 
 type receiver struct {
-	send        []byte
-	receive     []byte
-	addr        *net.UDPAddr
-	filename    string
-	localIP     net.IP
-	tid         int
-	conn        connection
-	block       uint16
-	retry       *backoff
-	timeout     time.Duration
-	retries     int
-	l           int
-	autoTerm    bool
-	dally       bool
-	mode        string
-	opts        options
-	singlePort  bool
-	maxBlockLen int
-	hook        Hook
-	startTime   time.Time
+	send           []byte
+	receive        []byte
+	addr           *net.UDPAddr
+	filename       string
+	localIP        net.IP
+	tid            int
+	conn           connection
+	block          uint16
+	retry          *backoff
+	timeout        time.Duration
+	retries        int
+	l              int
+	autoTerm       bool
+	dally          bool
+	mode           string
+	opts           options
+	singlePort     bool
+	maxBlockLen    int
+	hook           Hook
+	startTime      time.Time
+	datagramsSent  int
+	datagramsAcked int
 }
 
 func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
@@ -67,12 +69,6 @@ func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 		w = netascii.FromWriter(w)
 	}
 	if r.opts != nil {
-		if r.singlePort {
-			// We can only support one incoming blocksize in single port mode
-			if _, ok := r.opts["blksize"]; ok {
-				r.opts["blksize"] = strconv.Itoa(blockLength)
-			}
-		}
 		err := r.sendOptions()
 		if err != nil {
 			r.abort(err)
@@ -171,6 +167,7 @@ func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
 	if err != nil {
 		return 0, nil, err
 	}
+	r.datagramsSent++
 	for {
 		c, addr, err := r.conn.readFrom(r.receive)
 		if err != nil {
@@ -187,6 +184,7 @@ func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
 		switch p := p.(type) {
 		case pDATA:
 			if p.block() == r.block {
+				r.datagramsAcked++
 				return c, addr, nil
 			}
 		case pOACK:
@@ -245,13 +243,14 @@ func (r *receiver) terminate() error {
 
 func (r *receiver) buildTransferStats() TransferStats {
 	return TransferStats{
-		RemoteAddr:  r.addr.IP,
-		Filename:    r.filename,
-		Tid:         r.tid,
-		TotalBlocks: r.block,
-		Mode:        r.mode,
-		Opts:        r.opts,
-		Duration:    time.Now().Sub(r.startTime),
+		RemoteAddr:     r.addr.IP,
+		Filename:       r.filename,
+		Tid:            r.tid,
+		Mode:           r.mode,
+		Opts:           r.opts,
+		Duration:       time.Now().Sub(r.startTime),
+		DatagramsSent:  r.datagramsSent,
+		DatagramsAcked: r.datagramsAcked,
 	}
 }
 

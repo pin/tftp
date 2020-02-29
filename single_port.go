@@ -104,11 +104,11 @@ func (s *Server) getPacket(buf []byte) (int, net.IP, *net.UDPAddr, int, error) {
 		}
 		return cnt, localAddr, srcAddr.(*net.UDPAddr), maxSz, nil
 	} else {
-		cnt, srcAddr, err := s.conn.ReadFromUDP(buf)
+		cnt, srcAddr, err := s.conn.ReadFrom(buf)
 		if err != nil {
 			return 0, nil, nil, 0, err
 		}
-		return cnt, nil, srcAddr, blockLength, nil
+		return cnt, nil, srcAddr.(*net.UDPAddr), blockLength, nil
 	}
 }
 

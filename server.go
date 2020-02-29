@@ -46,7 +46,7 @@ type Server struct {
 	writeHandler func(filename string, wt io.WriterTo) error
 	hook         Hook
 	backoff      backoffFunc
-	conn         *net.UDPConn
+	conn         net.PacketConn
 	conn6        *ipv6.PacketConn
 	conn4        *ipv4.PacketConn
 	quit         chan chan struct{}
@@ -188,7 +188,7 @@ func (s *Server) ListenAndServe(addr string) error {
 // useful for the case when you want to run server in separate goroutine
 // but still want to be able to handle any errors opening connection.
 // Serve returns when Shutdown is called or connection is closed.
-func (s *Server) Serve(conn *net.UDPConn) error {
+func (s *Server) Serve(conn net.PacketConn) error {
 	defer conn.Close()
 	laddr := conn.LocalAddr()
 	host, _, err := net.SplitHostPort(laddr.String())
@@ -202,15 +202,18 @@ func (s *Server) Serve(conn *net.UDPConn) error {
 	if addr == nil {
 		return fmt.Errorf("Failed to determine IP class of listening address")
 	}
-	if addr.To4() != nil {
-		s.conn4 = ipv4.NewPacketConn(conn)
-		if err := s.conn4.SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true); err != nil {
-			s.conn4 = nil
-		}
-	} else {
-		s.conn6 = ipv6.NewPacketConn(conn)
-		if err := s.conn6.SetControlMessage(ipv6.FlagDst|ipv6.FlagInterface, true); err != nil {
-			s.conn6 = nil
+
+	if conn, ok := conn.(*net.UDPConn); ok {
+		if addr.To4() != nil {
+			s.conn4 = ipv4.NewPacketConn(conn)
+			if err := s.conn4.SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true); err != nil {
+				s.conn4 = nil
+			}
+		} else {
+			s.conn6 = ipv6.NewPacketConn(conn)
+			if err := s.conn6.SetControlMessage(ipv6.FlagDst|ipv6.FlagInterface, true); err != nil {
+				s.conn6 = nil
+			}
 		}
 	}
 
@@ -290,11 +293,11 @@ func (s *Server) processRequest6() error {
 // Fallback if we had problems opening a ipv4/6 control channel
 func (s *Server) processRequest() error {
 	buf := make([]byte, datagramLength)
-	cnt, srcAddr, err := s.conn.ReadFromUDP(buf)
+	cnt, srcAddr, err := s.conn.ReadFrom(buf)
 	if err != nil {
 		return fmt.Errorf("reading UDP: %v", err)
 	}
-	return s.handlePacket(nil, srcAddr, buf, cnt, blockLength, nil)
+	return s.handlePacket(nil, srcAddr.(*net.UDPAddr), buf, cnt, blockLength, nil)
 }
 
 // Shutdown make server stop listening for new requests, allows

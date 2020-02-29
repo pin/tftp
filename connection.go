@@ -32,7 +32,7 @@ type connConnection struct {
 }
 
 type chanConnection struct {
-	sendConn *net.UDPConn
+	sendConn net.PacketConn
 	channel  chan []byte
 	addr     *net.UDPAddr
 	timeout  time.Duration
@@ -40,7 +40,7 @@ type chanConnection struct {
 }
 
 func (c *chanConnection) sendTo(data []byte, addr *net.UDPAddr) error {
-	_, err := c.sendConn.WriteToUDP(data, addr)
+	_, err := c.sendConn.WriteTo(data, addr)
 	return err
 }
 

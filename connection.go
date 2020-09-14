@@ -32,15 +32,18 @@ type connConnection struct {
 }
 
 type chanConnection struct {
-	sendConn net.PacketConn
-	channel  chan []byte
-	addr     *net.UDPAddr
-	timeout  time.Duration
-	complete chan string
+	s       *Server
+	channel chan []byte
+	addr    *net.UDPAddr
+	timeout time.Duration
 }
 
 func (c *chanConnection) sendTo(data []byte, addr *net.UDPAddr) error {
-	_, err := c.sendConn.WriteTo(data, addr)
+	var err error
+	c.s.Lock()
+	conn := c.s.conn
+	c.s.Unlock()
+	_, err = conn.WriteTo(data, addr)
 	return err
 }
 
@@ -62,8 +65,10 @@ func (c *chanConnection) setDeadline(deadline time.Duration) error {
 }
 
 func (c *chanConnection) close() {
+	c.s.Lock()
+	defer c.s.Unlock()
 	close(c.channel)
-	c.complete <- c.addr.String()
+	delete(c.s.handlers, c.addr.String())
 }
 
 func (c *connConnection) sendTo(data []byte, addr *net.UDPAddr) error {

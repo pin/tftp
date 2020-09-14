@@ -52,6 +52,13 @@ type sender struct {
 	datagramsAcked int
 }
 
+func (s *sender) Hook() Hook {
+	if s.hook == nil {
+		return emptyHook{}
+	}
+	return s.hook
+}
+
 func (s *sender) RemoteAddr() net.UDPAddr { return *s.addr }
 func (s *sender) LocalIP() net.IP         { return s.localIP }
 
@@ -112,9 +119,7 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 					s.abort(err)
 					return n, err
 				}
-				if s.hook != nil {
-					s.hook.OnSuccess(s.buildTransferStats())
-				}
+				s.Hook().OnSuccess(s.buildTransferStats())
 				s.conn.close()
 				return n, nil
 			}
@@ -128,9 +133,8 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 			return n, err
 		}
 		if l < len(s.send)-4 {
-			if s.hook != nil {
-				s.hook.OnSuccess(s.buildTransferStats())
-			}
+			s.Hook().OnSuccess(s.buildTransferStats())
+
 			s.conn.close()
 			return n, nil
 		}
@@ -274,9 +278,7 @@ func (s *sender) abort(err error) error {
 	if s.conn == nil {
 		return nil
 	}
-	if s.hook != nil {
-		s.hook.OnFailure(s.buildTransferStats(), err)
-	}
+	s.Hook().OnFailure(s.buildTransferStats(), err)
 	n := packERROR(s.send, 1, err.Error())
 	err = s.conn.sendTo(s.send[:n], s.addr)
 	if err != nil {

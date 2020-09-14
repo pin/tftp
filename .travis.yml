@@ -1,8 +1,10 @@
 language: go
-
+go:
+  - '1.13'
 os:
   - linux
   - osx
-
 before_install:
   - ulimit -n 4096
+script:
+  - go test -v -race

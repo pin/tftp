@@ -64,6 +64,13 @@ type receiver struct {
 	datagramsAcked int
 }
 
+func (r *receiver) Hook() Hook {
+	if r.hook == nil {
+		return emptyHook{}
+	}
+	return r.hook
+}
+
 func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 	if r.mode == "netascii" {
 		w = netascii.FromWriter(w)
@@ -219,9 +226,7 @@ func (r *receiver) terminate() error {
 		return nil
 	}
 	defer func() {
-		if r.hook != nil {
-			r.hook.OnSuccess(r.buildTransferStats())
-		}
+		r.Hook().OnSuccess(r.buildTransferStats())
 		r.conn.close()
 	}()
 	binary.BigEndian.PutUint16(r.send[2:4], r.block)
@@ -258,9 +263,7 @@ func (r *receiver) abort(err error) error {
 	if r.conn == nil {
 		return nil
 	}
-	if r.hook != nil {
-		r.hook.OnFailure(r.buildTransferStats(), err)
-	}
+	r.Hook().OnFailure(r.buildTransferStats(), err)
 	n := packERROR(r.send, 1, err.Error())
 	err = r.conn.sendTo(r.send[:n], r.addr)
 	if err != nil {

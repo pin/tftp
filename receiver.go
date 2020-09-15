@@ -21,10 +21,14 @@ type IncomingTransfer interface {
 
 	// RemoteAddr returns the remote peer's IP address and port.
 	RemoteAddr() net.UDPAddr
+
+	// Mode returns the remote peer's transmission mode.
+	Mode() string
 }
 
 func (r *receiver) RemoteAddr() net.UDPAddr { return *r.addr }
 func (r *receiver) LocalIP() net.IP         { return r.localIP }
+func (r *receiver) Mode() string            { return r.mode }
 
 func (r *receiver) Size() (n int64, ok bool) {
 	if r.opts != nil {

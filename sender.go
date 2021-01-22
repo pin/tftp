@@ -178,6 +178,7 @@ func (s *sender) setBlockSize(blksize string) error {
 	if n > 65464 {
 		return fmt.Errorf("blksize too large: %d", n)
 	}
+	fmt.Printf("s.maxBlockLen = %d  n = %d", s.maxBlockLen, n)
 	if s.maxBlockLen > 0 && n > s.maxBlockLen {
 		n = s.maxBlockLen
 		s.opts["blksize"] = strconv.Itoa(n)

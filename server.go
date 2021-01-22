@@ -313,7 +313,11 @@ func (s *Server) Shutdown() {
 }
 
 func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) error {
-	if s.maxBlockLen > 0 && s.maxBlockLen < maxBlockLen {
+	// handlePacket is always called with maxBlockLen = blockLength (above, in processRequest).
+	// As a result, the block size would always be capped at 512 bytes, even when the tftp
+	// client indicated to use a larger value.  So override that value.  And make sure to
+	// use that value below, when allocating buffers.  (Happening on Windows Server 2016.)
+	if s.maxBlockLen > 0 {
 		maxBlockLen = s.maxBlockLen
 	}
 	if maxBlockLen < blockLength {
@@ -330,8 +334,8 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			return fmt.Errorf("unpack WRQ: %v", err)
 		}
 		wt := &receiver{
-			send:        make([]byte, datagramLength),
-			receive:     make([]byte, datagramLength),
+			send:        make([]byte, maxBlockLen+4),
+			receive:     make([]byte, maxBlockLen+4),
 			retry:       &backoff{handler: s.backoff},
 			timeout:     s.timeout,
 			retries:     s.retries,
@@ -380,9 +384,9 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			return fmt.Errorf("unpack RRQ: %v", err)
 		}
 		rf := &sender{
-			send:        make([]byte, datagramLength),
+			send:        make([]byte, maxBlockLen+4),
 			sendA:       senderAnticipate{enabled: false},
-			receive:     make([]byte, datagramLength),
+			receive:     make([]byte, maxBlockLen+4),
 			tid:         remoteAddr.Port,
 			retry:       &backoff{handler: s.backoff},
 			timeout:     s.timeout,

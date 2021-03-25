@@ -323,11 +323,16 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 	if err != nil {
 		return err
 	}
+	listenAddr := &net.UDPAddr{IP: localAddr}
 	switch p := p.(type) {
 	case pWRQ:
 		filename, mode, opts, err := unpackRQ(p)
 		if err != nil {
 			return fmt.Errorf("unpack WRQ: %v", err)
+		}
+		//fmt.Printf("got WRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
+		if err != nil {
+			return fmt.Errorf("open transmission: %v", err)
 		}
 		wt := &receiver{
 			send:        make([]byte, datagramLength),
@@ -346,6 +351,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		if s.singlePort {
 			wt.conn = &chanConnection{
+				srcAddr:  listenAddr,
 				addr:     remoteAddr,
 				channel:  listener,
 				timeout:  s.timeout,
@@ -354,7 +360,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			}
 			wt.singlePort = true
 		} else {
-			conn, err := net.ListenUDP("udp", &net.UDPAddr{})
+			conn, err := net.ListenUDP("udp", listenAddr)
 			if err != nil {
 				return err
 			}
@@ -379,6 +385,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		if err != nil {
 			return fmt.Errorf("unpack RRQ: %v", err)
 		}
+		//fmt.Printf("got RRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
 		rf := &sender{
 			send:        make([]byte, datagramLength),
 			sendA:       senderAnticipate{enabled: false},
@@ -398,6 +405,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		if s.singlePort {
 			rf.conn = &chanConnection{
+				srcAddr:  listenAddr,
 				addr:     remoteAddr,
 				channel:  listener,
 				timeout:  s.timeout,
@@ -405,7 +413,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 				complete: s.gcCollect,
 			}
 		} else {
-			conn, err := net.ListenUDP("udp", &net.UDPAddr{})
+			conn, err := net.ListenUDP("udp", listenAddr)
 			if err != nil {
 				return err
 			}

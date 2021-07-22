@@ -67,6 +67,10 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 	if s.mode == "netascii" {
 		r = netascii.ToReader(r)
 	}
+	defer func() {
+		s.conn.close()
+		s.conn = nil
+	}()
 	if s.opts != nil {
 		// check that tsize is set
 		if ts, ok := s.opts["tsize"]; ok {
@@ -115,7 +119,6 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 				if s.hook != nil {
 					s.hook.OnSuccess(s.buildTransferStats())
 				}
-				s.conn.close()
 				return n, nil
 			}
 			s.abort(err)
@@ -131,7 +134,6 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 			if s.hook != nil {
 				s.hook.OnSuccess(s.buildTransferStats())
 			}
-			s.conn.close()
 			return n, nil
 		}
 		s.block++

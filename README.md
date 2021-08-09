@@ -92,7 +92,7 @@ c, err := tftp.NewClient("172.16.4.21:69")
 wt, err := c.Receive("foobar.txt", "octet")
 file, err := os.Create(path)
 // Optionally obtain transfer size before actual data.
-if n, ok := wt.(IncomingTransfer).Size(); ok {
+if n, ok := wt.(tftp.IncomingTransfer).Size(); ok {
 	fmt.Printf("Transfer size: %d\n", n)
 }
 n, err := wt.WriteTo(file)

@@ -1,4 +1,4 @@
-module github.com/pin/tftp
+module github.com/pin/tftp/v2
 
 go 1.13
 

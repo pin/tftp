@@ -15,7 +15,7 @@ Partially implements (tsize server side only):
 Set of features is sufficient for PXE boot support.
 
 ``` go
-import "github.com/pin/tftp"
+import "github.com/pin/tftp/v2"
 ```
 
 The package is cohesive to Golang `io`. Particularly it implements

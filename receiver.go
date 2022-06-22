@@ -1,272 +1,135 @@
 package tftp
 
 import (
-	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
-	"strconv"
 	"time"
-
-	"github.com/pin/tftp/v2/netascii"
 )
 
-// IncomingTransfer provides methods that expose information associated with
-// an incoming transfer.
-type IncomingTransfer interface {
-	// Size returns the size of an incoming file if the request included the
-	// tsize option (see RFC2349).  To differentiate a zero-sized file transfer
-	// from a request without tsize use the second boolean "ok" return value.
-	Size() (n int64, ok bool)
-
-	// RemoteAddr returns the remote peer's IP address and port.
-	RemoteAddr() net.UDPAddr
-}
-
-func (r *receiver) RemoteAddr() net.UDPAddr { return *r.addr }
-func (r *receiver) LocalIP() net.IP         { return r.localIP }
-
-func (r *receiver) Size() (n int64, ok bool) {
-	if r.opts != nil {
-		if s, ok := r.opts["tsize"]; ok {
-			n, err := strconv.ParseInt(s, 10, 64)
-			if err != nil {
-				return 0, false
-			}
-			return n, true
-		}
-	}
-	return 0, false
-}
-
 type receiver struct {
-	send           []byte
-	receive        []byte
-	addr           *net.UDPAddr
-	filename       string
-	localIP        net.IP
-	tid            int
-	conn           connection
-	block          uint16
-	retry          *backoff
-	timeout        time.Duration
-	retries        int
-	l              int
-	autoTerm       bool
-	dally          bool
-	mode           string
-	opts           options
-	singlePort     bool
-	maxBlockLen    int
-	hook           Hook
-	startTime      time.Time
-	datagramsSent  int
-	datagramsAcked int
+	remoteAddr *net.UDPAddr
+	conn       *net.UDPConn
+	writer     *io.PipeWriter
+	filename   string
+	mode       string
+	log        *log.Logger
 }
 
-func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
-	if r.mode == "netascii" {
-		w = netascii.FromWriter(w)
-	}
-	if r.opts != nil {
-		err := r.sendOptions()
-		if err != nil {
-			r.abort(err)
-			return 0, err
-		}
-	}
-	binary.BigEndian.PutUint16(r.send[0:2], opACK)
+var ErrReceiveTimeout = errors.New("receive timeout")
+
+func (r *receiver) run(serverMode bool) error {
+	var blockNumber uint16
+	blockNumber = 1
+	var buffer []byte
+	buffer = make([]byte, MAX_DATAGRAM_SIZE)
+	firstBlock := true
 	for {
-		if r.l > 0 {
-			l, err := w.Write(r.receive[4:r.l])
-			n += int64(l)
-			if err != nil {
-				r.abort(err)
-				return n, err
+		last, e := r.receiveBlock(buffer, blockNumber, firstBlock && !serverMode)
+		if e != nil {
+			if r.log != nil {
+				r.log.Printf("Error receiving block %d: %v", blockNumber, e)
 			}
-			if r.l < len(r.receive) {
-				if r.autoTerm {
-					r.terminate()
-				}
-				return n, nil
-			}
+			r.writer.CloseWithError(e)
+			return e
 		}
-		binary.BigEndian.PutUint16(r.send[2:4], r.block)
-		r.block++ // send ACK for current block and expect next one
-		ll, _, err := r.receiveWithRetry(4)
-		if err != nil {
-			r.abort(err)
-			return n, err
+		firstBlock = false
+		if last {
+			break
 		}
-		r.l = ll
+		blockNumber++
 	}
+	r.writer.Close()
+	r.terminate(buffer, blockNumber, false)
+	return nil
 }
 
-func (r *receiver) sendOptions() error {
-	for name, value := range r.opts {
-		if name == "blksize" {
-			err := r.setBlockSize(value)
-			if err != nil {
-				delete(r.opts, name)
-				continue
-			}
+func (r *receiver) receiveBlock(b []byte, n uint16, firstBlockOnClient bool) (last bool, e error) {
+	for i := 0; i < 3; i++ {
+		if firstBlockOnClient {
+			rrqPacket := RRQ{r.filename, r.mode}
+			r.conn.WriteToUDP(rrqPacket.Pack(), r.remoteAddr)
+			r.log.Printf("sent RRQ (filename=%s, mode=%s)", r.filename, r.mode)
 		} else {
-			delete(r.opts, name)
+			ackPacket := ACK{n - 1}
+			r.conn.WriteToUDP(ackPacket.Pack(), r.remoteAddr)
+			r.log.Printf("sent ACK #%d", n-1)
 		}
-	}
-	if len(r.opts) > 0 {
-		m := packOACK(r.send, r.opts)
-		r.block = 1 // expect data block number 1
-		ll, _, err := r.receiveWithRetry(m)
-		if err != nil {
-			r.abort(err)
-			return err
+		setDeadlineError := r.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		if setDeadlineError != nil {
+			return false, fmt.Errorf("Could not set UDP timeout: %v", setDeadlineError)
 		}
-		r.l = ll
-	}
-	return nil
-}
-
-func (r *receiver) setBlockSize(blksize string) error {
-	n, err := strconv.Atoi(blksize)
-	if err != nil {
-		return err
-	}
-	if n < 512 {
-		return fmt.Errorf("blksize too small: %d", n)
-	}
-	if n > 65464 {
-		return fmt.Errorf("blksize too large: %d", n)
-	}
-	if r.maxBlockLen > 0 && n > r.maxBlockLen {
-		n = r.maxBlockLen
-		r.opts["blksize"] = strconv.Itoa(n)
-	}
-	r.receive = make([]byte, n+4)
-	return nil
-}
-
-func (r *receiver) receiveWithRetry(l int) (int, *net.UDPAddr, error) {
-	r.retry.reset()
-	for {
-		n, addr, err := r.receiveDatagram(l)
-		if _, ok := err.(net.Error); ok && r.retry.count() < r.retries {
-			r.retry.backoff()
-			continue
-		}
-		return n, addr, err
-	}
-}
-
-func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
-	err := r.conn.setDeadline(r.timeout)
-	if err != nil {
-		return 0, nil, err
-	}
-	err = r.conn.sendTo(r.send[:l], r.addr)
-	if err != nil {
-		return 0, nil, err
-	}
-	r.datagramsSent++
-	for {
-		c, addr, err := r.conn.readFrom(r.receive)
-		if err != nil {
-			return 0, nil, err
-		}
-		if !addr.IP.Equal(r.addr.IP) || (r.tid != 0 && addr.Port != r.tid) {
-			continue
-		}
-		p, err := parsePacket(r.receive[:c])
-		if err != nil {
-			return 0, addr, err
-		}
-		r.tid = addr.Port
-		switch p := p.(type) {
-		case pDATA:
-			if p.block() == r.block {
-				r.datagramsAcked++
-				return c, addr, nil
+		for {
+			c, remoteAddr, readError := r.conn.ReadFromUDP(b)
+			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
+				break
+			} else if e != nil {
+				return false, fmt.Errorf("Error reading UDP packet: %v", e)
 			}
-		case pOACK:
-			opts, err := unpackOACK(p)
-			if r.block != 1 {
+			packet, e := ParsePacket(b[:c])
+			if e != nil {
 				continue
 			}
-			if err != nil {
-				r.abort(err)
-				return 0, addr, err
-			}
-			for name, value := range opts {
-				if name == "blksize" {
-					err := r.setBlockSize(value)
-					if err != nil {
-						continue
+			switch p := packet.(type) {
+			case *DATA:
+				r.log.Printf("got DATA #%d (%d bytes)", p.BlockNumber, len(p.Data))
+				if n == p.BlockNumber {
+					if firstBlockOnClient {
+						r.remoteAddr = remoteAddr
+					}
+					_, e := r.writer.Write(p.Data)
+					if e == nil {
+						return len(p.Data) < BLOCK_SIZE, nil
+					} else {
+						errorPacket := ERROR{1, e.Error()}
+						r.conn.WriteToUDP(errorPacket.Pack(), r.remoteAddr)
+						return false, fmt.Errorf("Handler error: %v", e)
 					}
 				}
+			case *ERROR:
+				return false, fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
 			}
-			r.block = 0 // ACK with block number 0
-			r.opts = opts
-			return 0, addr, nil
-		case pERROR:
-			return 0, addr, fmt.Errorf("code: %d, message: %s",
-				p.code(), p.message())
 		}
 	}
+	return false, ErrReceiveTimeout
 }
 
-func (r *receiver) terminate() error {
-	if r.conn == nil {
-		return nil
-	}
-	defer func() {
-		if r.hook != nil {
-			r.hook.OnSuccess(r.buildTransferStats())
+func (r *receiver) terminate(b []byte, n uint16, dallying bool) (e error) {
+	for i := 0; i < 3; i++ {
+		ackPacket := ACK{n}
+		_, e := r.conn.WriteToUDP(ackPacket.Pack(), r.remoteAddr)
+		r.log.Printf("sent ACK #%d", n)
+		if !dallying {
+			return e
 		}
-		r.conn.close()
-	}()
-	binary.BigEndian.PutUint16(r.send[2:4], r.block)
-	if r.dally {
-		for i := 0; i < 3; i++ {
-			_, _, err := r.receiveDatagram(4)
-			if err != nil {
+		setDeadlineError := r.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		if setDeadlineError != nil {
+			return fmt.Errorf("Could not set UDP timeout: %v", setDeadlineError)
+		}
+	l1:
+		for {
+			c, _, readError := r.conn.ReadFromUDP(b)
+			if networkError, ok := readError.(net.Error); ok && networkError.Timeout() {
 				return nil
+			} else if e != nil {
+				return fmt.Errorf("Error reading UDP packet: %v", e)
+			}
+			packet, e := ParsePacket(b[:c])
+			if e != nil {
+				continue
+			}
+			switch p := packet.(type) {
+			case *DATA:
+				r.log.Printf("got DATA #%d (%d bytes)", p.BlockNumber, len(p.Data))
+				if n == p.BlockNumber {
+					break l1
+				}
+			case *ERROR:
+				fmt.Errorf("Transmission error %d: %s", p.ErrorCode, p.ErrorMessage)
 			}
 		}
-		return fmt.Errorf("dallying termination failed")
 	}
-	err := r.conn.sendTo(r.send[:4], r.addr)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (r *receiver) buildTransferStats() TransferStats {
-	return TransferStats{
-		RemoteAddr:     r.addr.IP,
-		Filename:       r.filename,
-		Tid:            r.tid,
-		Mode:           r.mode,
-		Opts:           r.opts,
-		Duration:       time.Now().Sub(r.startTime),
-		DatagramsSent:  r.datagramsSent,
-		DatagramsAcked: r.datagramsAcked,
-	}
-}
-
-func (r *receiver) abort(err error) error {
-	if r.conn == nil {
-		return nil
-	}
-	if r.hook != nil {
-		r.hook.OnFailure(r.buildTransferStats(), err)
-	}
-	n := packERROR(r.send, 1, err.Error())
-	err = r.conn.sendTo(r.send[:n], r.addr)
-	if err != nil {
-		return err
-	}
-	r.conn.close()
-	r.conn = nil
-	return nil
+	return fmt.Errorf("Termination error")
 }

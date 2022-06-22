@@ -3,136 +3,109 @@ package tftp
 import (
 	"fmt"
 	"io"
+	"log"
 	"net"
-	"strconv"
-	"time"
+	"sync"
 )
 
-// NewClient creates TFTP client for server on address provided.
-func NewClient(addr string) (*Client, error) {
-	a, err := net.ResolveUDPAddr("udp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("resolving address %s: %v", addr, err)
+/*
+Client provides TFTP client functionality. It requires remote address and
+optional logger
+
+Uploading file to server example
+
+	addr, e := net.ResolveUDPAddr("udp", "example.org:69")
+	if e != nil {
+		...
 	}
-	return &Client{
-		addr:    a,
-		timeout: defaultTimeout,
-		retries: defaultRetries,
-	}, nil
-}
-
-// SetTimeout sets maximum time client waits for single network round-trip to succeed.
-// Default is 5 seconds.
-func (c *Client) SetTimeout(t time.Duration) {
-	if t <= 0 {
-		c.timeout = defaultTimeout
+	file, e := os.Open("/etc/passwd")
+	if e != nil {
+		...
 	}
-	c.timeout = t
-}
+	r := bufio.NewReader(file)
+	log := log.New(os.Stderr, "", log.Ldate | log.Ltime)
+	c := tftp.Client{addr, log}
+	c.Put(filename, mode, func(writer *io.PipeWriter) {
+		n, writeError := r.WriteTo(writer)
+		if writeError != nil {
+			fmt.Fprintf(os.Stderr, "Can't put %s: %v\n", filename, writeError);
+		} else {
+			fmt.Fprintf(os.Stderr, "Put %s (%d bytes)\n", filename, n);
+		}
+		writer.Close()
+	})
 
-// SetRetries sets maximum number of attempts client made to transmit a packet.
-// Default is 5 attempts.
-func (c *Client) SetRetries(count int) {
-	if count < 1 {
-		c.retries = defaultRetries
+Downloading file from server example
+
+	addr, e := net.ResolveUDPAddr("udp", "example.org:69")
+	if e != nil {
+		...
 	}
-	c.retries = count
-}
-
-// SetBackoff sets a user provided function that is called to provide a
-// backoff duration prior to retransmitting an unacknowledged packet.
-func (c *Client) SetBackoff(h backoffFunc) {
-	c.backoff = h
-}
-
-// SetBlockSize sets a custom block size used in the transmission.
-func (c *Client) SetBlockSize(s int) {
-	c.blksize = s
-}
-
-// RequestTSize sets flag to indicate if tsize should be requested.
-func (c *Client) RequestTSize(s bool) {
-	c.tsize = s
-}
-
-// Client stores data about a single TFTP client
+	file, e := os.Create("/var/tmp/debian.img")
+	if e != nil {
+		...
+	}
+	w := bufio.NewWriter(file)
+	log := log.New(os.Stderr, "", log.Ldate | log.Ltime)
+	c := tftp.Client{addr, log}
+	c.Get(filename, mode, func(reader *io.PipeReader) {
+		n, readError := w.ReadFrom(reader)
+		if readError != nil {
+			fmt.Fprintf(os.Stderr, "Can't get %s: %v\n", filename, readError);
+		} else {
+			fmt.Fprintf(os.Stderr, "Got %s (%d bytes)\n", filename, n);
+		}
+		w.Flush()
+		file.Close()
+	})
+*/
 type Client struct {
-	addr    *net.UDPAddr
-	timeout time.Duration
-	retries int
-	backoff backoffFunc
-	blksize int
-	tsize   bool
+	RemoteAddr *net.UDPAddr
+	Log        *log.Logger
 }
 
-// Send starts outgoing file transmission. It returns io.ReaderFrom or error.
-func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
-	if err != nil {
-		return nil, err
+// Method for uploading file to server
+func (c Client) Put(filename string, mode string, handler func(w *io.PipeWriter)) error {
+	addr, e := net.ResolveUDPAddr("udp", ":0")
+	if e != nil {
+		return e
 	}
-	s := &sender{
-		send:    make([]byte, datagramLength),
-		receive: make([]byte, datagramLength),
-		conn:    &connConnection{conn: conn},
-		retry:   &backoff{handler: c.backoff},
-		timeout: c.timeout,
-		retries: c.retries,
-		addr:    c.addr,
-		mode:    mode,
+	conn, e := net.ListenUDP("udp", addr)
+	if e != nil {
+		return e
 	}
-	if c.blksize != 0 {
-		s.opts = make(options)
-		s.opts["blksize"] = strconv.Itoa(c.blksize)
-	}
-	n := packRQ(s.send, opWRQ, filename, mode, s.opts)
-	addr, err := s.sendWithRetry(n)
-	if err != nil {
-		return nil, err
-	}
-	s.addr = addr
-	s.opts = nil
-	return s, nil
+	reader, writer := io.Pipe()
+	s := &sender{c.RemoteAddr, conn, reader, filename, mode, c.Log}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		handler(writer)
+		wg.Done()
+	}()
+	s.run(false)
+	wg.Wait()
+	return nil
 }
 
-// Receive starts incoming file transmission. It returns io.WriterTo or error.
-func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
-	if err != nil {
-		return nil, err
+// Method for downloading file from server
+func (c Client) Get(filename string, mode string, handler func(r *io.PipeReader)) error {
+	addr, e := net.ResolveUDPAddr("udp", ":0")
+	if e != nil {
+		return e
 	}
-	if c.timeout == 0 {
-		c.timeout = defaultTimeout
+	conn, e := net.ListenUDP("udp", addr)
+	if e != nil {
+		return e
 	}
-	r := &receiver{
-		send:     make([]byte, datagramLength),
-		receive:  make([]byte, datagramLength),
-		conn:     &connConnection{conn: conn},
-		retry:    &backoff{handler: c.backoff},
-		timeout:  c.timeout,
-		retries:  c.retries,
-		addr:     c.addr,
-		autoTerm: true,
-		block:    1,
-		mode:     mode,
-	}
-	if c.blksize != 0 || c.tsize {
-		r.opts = make(options)
-	}
-	if c.blksize != 0 {
-		r.opts["blksize"] = strconv.Itoa(c.blksize)
-		// Clean it up so we don't send options twice
-		defer func() { delete(r.opts, "blksize") }()
-	}
-	if c.tsize {
-		r.opts["tsize"] = "0"
-	}
-	n := packRQ(r.send, opRRQ, filename, mode, r.opts)
-	l, addr, err := r.receiveWithRetry(n)
-	if err != nil {
-		return nil, err
-	}
-	r.l = l
-	r.addr = addr
-	return r, nil
+	reader, writer := io.Pipe()
+	r := &receiver{c.RemoteAddr, conn, writer, filename, mode, c.Log}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		handler(reader)
+		wg.Done()
+	}()
+	r.run(false)
+	wg.Wait()
+	return fmt.Errorf("Send timeout")
 }

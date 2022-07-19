@@ -427,7 +427,6 @@ func makeTestServer(singlePort bool) (*Server, *Client) {
 
 	if singlePort {
 		s.SetBlockSize(2000)
-		s.gcThreshold = 100000
 		s.EnableSinglePort()
 	}
 

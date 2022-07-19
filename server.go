@@ -184,7 +184,7 @@ func (s *Server) ListenAndServe(addr string) error {
 	return s.Serve(conn)
 }
 
-// Serve starts server provided already opened UDP connecton. It is
+// Serve starts server provided already opened UDP connection. It is
 // useful for the case when you want to run server in separate goroutine
 // but still want to be able to handle any errors opening connection.
 // Serve returns when Shutdown is called or connection is closed.
@@ -246,7 +246,7 @@ func (s *Server) Serve(conn net.PacketConn) error {
 	return nil
 }
 
-// Yes, I don't really like having seperate IPv4 and IPv6 variants,
+// Yes, I don't really like having separate IPv4 and IPv6 variants,
 // bit we are relying on the low-level packet control channel info to
 // get a reliable source address, and those have different types and
 // the struct itself is not easily interface-ized or embedded.

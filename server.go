@@ -1,6 +1,7 @@
 package tftp
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -18,14 +19,15 @@ import (
 func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 	writeHandler func(filename string, wt io.WriterTo) error) *Server {
 	s := &Server{
+		Mutex:             &sync.Mutex{},
 		timeout:           defaultTimeout,
 		retries:           defaultRetries,
-		runGC:             make(chan []string),
-		gcThreshold:       100,
 		packetReadTimeout: 100 * time.Millisecond,
 		readHandler:       readHandler,
 		writeHandler:      writeHandler,
+		wg:                &sync.WaitGroup{},
 	}
+	s.cancel, s.cancelFn = context.WithCancel(context.Background())
 	return s
 }
 
@@ -42,6 +44,7 @@ type RequestPacketInfo interface {
 
 // Server is an instance of a TFTP server
 type Server struct {
+	*sync.Mutex
 	readHandler  func(filename string, rf io.ReaderFrom) error
 	writeHandler func(filename string, wt io.WriterTo) error
 	hook         Hook
@@ -49,8 +52,7 @@ type Server struct {
 	conn         net.PacketConn
 	conn6        *ipv6.PacketConn
 	conn4        *ipv4.PacketConn
-	quit         chan chan struct{}
-	wg           sync.WaitGroup
+	wg           *sync.WaitGroup
 	timeout      time.Duration
 	retries      int
 	maxBlockLen  int
@@ -58,12 +60,10 @@ type Server struct {
 	sendAWinSz   uint
 	// Single port fields
 	singlePort        bool
-	bufPool           sync.Pool
 	handlers          map[string]chan []byte
-	runGC             chan []string
-	gcCollect         chan string
-	gcThreshold       int
 	packetReadTimeout time.Duration
+	cancel            context.Context
+	cancelFn          context.CancelFunc
 }
 
 // TransferStats contains details about a single TFTP transfer
@@ -117,16 +117,9 @@ func (s *Server) SetHook(hook Hook) {
 func (s *Server) EnableSinglePort() {
 	s.singlePort = true
 	s.handlers = make(map[string]chan []byte)
-	s.gcCollect = make(chan string)
 	if s.maxBlockLen == 0 {
 		s.maxBlockLen = blockLength
 	}
-	s.bufPool = sync.Pool{
-		New: func() interface{} {
-			return make([]byte, s.maxBlockLen+4)
-		},
-	}
-	go s.internalGC()
 }
 
 // SetTimeout sets maximum time server waits for single network
@@ -217,29 +210,27 @@ func (s *Server) Serve(conn net.PacketConn) error {
 		}
 	}
 
-	s.quit = make(chan chan struct{})
 	if s.singlePort {
-		s.singlePortProcessRequests()
-	} else {
-		for {
-			select {
-			case q := <-s.quit:
-				q <- struct{}{}
-				return nil
-			default:
-				var err error
-				if s.conn4 != nil {
-					err = s.processRequest4()
-				} else if s.conn6 != nil {
-					err = s.processRequest6()
-				} else {
-					err = s.processRequest()
-				}
-				if err != nil && s.hook != nil {
-					s.hook.OnFailure(TransferStats{
-						SenderAnticipateEnabled: s.sendAEnable,
-					}, err)
-				}
+		return s.singlePortProcessRequests()
+	}
+	for {
+		select {
+		case <-s.cancel.Done():
+			s.wg.Wait()
+			return nil
+		default:
+			var err error
+			if s.conn4 != nil {
+				err = s.processRequest4()
+			} else if s.conn6 != nil {
+				err = s.processRequest6()
+			} else {
+				err = s.processRequest()
+			}
+			if err != nil && s.hook != nil {
+				s.hook.OnFailure(TransferStats{
+					SenderAnticipateEnabled: s.sendAEnable,
+				}, err)
 			}
 		}
 	}
@@ -306,10 +297,7 @@ func (s *Server) Shutdown() {
 	if !s.singlePort {
 		s.conn.Close()
 	}
-	q := make(chan struct{})
-	s.quit <- q
-	<-q
-	s.wg.Wait()
+	s.cancelFn()
 }
 
 func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) error {
@@ -351,12 +339,11 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		if s.singlePort {
 			wt.conn = &chanConnection{
-				srcAddr:  listenAddr,
-				addr:     remoteAddr,
-				channel:  listener,
-				timeout:  s.timeout,
-				sendConn: s.conn,
-				complete: s.gcCollect,
+				server:  s,
+				srcAddr: listenAddr,
+				addr:    remoteAddr,
+				channel: listener,
+				timeout: s.timeout,
 			}
 			wt.singlePort = true
 		} else {
@@ -405,12 +392,11 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 		}
 		if s.singlePort {
 			rf.conn = &chanConnection{
-				srcAddr:  listenAddr,
-				addr:     remoteAddr,
-				channel:  listener,
-				timeout:  s.timeout,
-				sendConn: s.conn,
-				complete: s.gcCollect,
+				server:  s,
+				srcAddr: listenAddr,
+				addr:    remoteAddr,
+				channel: listener,
+				timeout: s.timeout,
 			}
 		} else {
 			conn, err := net.ListenUDP("udp", listenAddr)

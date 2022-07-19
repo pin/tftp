@@ -545,12 +545,15 @@ func (r *randReader) Read(p []byte) (n int, err error) {
 func serverTimeoutSendTest(s *Server, c *Client, t *testing.T) {
 	s.SetTimeout(time.Second)
 	s.SetRetries(2)
-	var serverErr error
+	sec := make(chan error, 1)
+	s.Lock()
 	s.readHandler = func(filename string, rf io.ReaderFrom) error {
 		r := io.LimitReader(newRandReader(rand.NewSource(42)), 80000)
-		_, serverErr = rf.ReadFrom(r)
-		return serverErr
+		_, err := rf.ReadFrom(r)
+		sec <- err
+		return err
 	}
+	s.Unlock()
 	defer s.Shutdown()
 	filename := "test-server-send-timeout"
 	mode := "octet"
@@ -563,12 +566,13 @@ func serverTimeoutSendTest(s *Server, c *Client, t *testing.T) {
 		delay: 8 * time.Second,
 	}
 	_, _ = readTransfer.WriteTo(w)
-	netErr, ok := serverErr.(net.Error)
+	servErr := <-sec
+	netErr, ok := servErr.(net.Error)
 	if !ok {
-		t.Fatalf("network error expected: %T", serverErr)
+		t.Fatalf("network error expected: %T", servErr)
 	}
 	if !netErr.Timeout() {
-		t.Fatalf("timout is expected: %v", serverErr)
+		t.Fatalf("timout is expected: %v", servErr)
 	}
 
 }
@@ -581,12 +585,15 @@ func TestServerSendTimeout(t *testing.T) {
 func serverReceiveTimeoutTest(s *Server, c *Client, t *testing.T) {
 	s.SetTimeout(time.Second)
 	s.SetRetries(2)
-	var serverErr error
+	sec := make(chan error, 1)
+	s.Lock()
 	s.writeHandler = func(filename string, wt io.WriterTo) error {
 		buf := &bytes.Buffer{}
-		_, serverErr = wt.WriteTo(buf)
-		return serverErr
+		_, err := wt.WriteTo(buf)
+		sec <- err
+		return err
 	}
+	s.Unlock()
 	defer s.Shutdown()
 	filename := "test-server-receive-timeout"
 	mode := "octet"
@@ -600,12 +607,13 @@ func serverReceiveTimeoutTest(s *Server, c *Client, t *testing.T) {
 		delay: 8 * time.Second,
 	}
 	_, _ = writeTransfer.ReadFrom(r)
-	netErr, ok := serverErr.(net.Error)
+	servErr := <-sec
+	netErr, ok := servErr.(net.Error)
 	if !ok {
-		t.Fatalf("network error expected: %T", serverErr)
+		t.Fatalf("network error expected: %T", servErr)
 	}
 	if !netErr.Timeout() {
-		t.Fatalf("timout is expected: %v", serverErr)
+		t.Fatalf("timout is expected: %v", servErr)
 	}
 }
 
@@ -618,6 +626,7 @@ func TestClientReceiveTimeout(t *testing.T) {
 	s, c := makeTestServer(false)
 	c.SetTimeout(time.Second)
 	c.SetRetries(2)
+	s.Lock()
 	s.readHandler = func(filename string, rf io.ReaderFrom) error {
 		r := &slowReader{
 			r:     io.LimitReader(newRandReader(rand.NewSource(42)), 80000),
@@ -627,6 +636,7 @@ func TestClientReceiveTimeout(t *testing.T) {
 		_, err := rf.ReadFrom(r)
 		return err
 	}
+	s.Unlock()
 	defer s.Shutdown()
 	filename := "test-client-receive-timeout"
 	mode := "octet"
@@ -649,6 +659,7 @@ func TestClientSendTimeout(t *testing.T) {
 	s, c := makeTestServer(false)
 	c.SetTimeout(time.Second)
 	c.SetRetries(2)
+	s.Lock()
 	s.writeHandler = func(filename string, wt io.WriterTo) error {
 		w := &slowWriter{
 			n:     3,
@@ -657,6 +668,7 @@ func TestClientSendTimeout(t *testing.T) {
 		_, err := wt.WriteTo(w)
 		return err
 	}
+	s.Unlock()
 	defer s.Shutdown()
 	filename := "test-client-send-timeout"
 	mode := "octet"

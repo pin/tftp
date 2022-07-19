@@ -95,6 +95,8 @@ type Hook interface {
 // runs through a different experimental code path. When winsz is 0 or 1,
 // the feature is disabled.
 func (s *Server) SetAnticipate(winsz uint) {
+	s.Lock()
+	defer s.Unlock()
 	if winsz > 1 {
 		s.sendAEnable = true
 		s.sendAWinSz = winsz
@@ -106,7 +108,23 @@ func (s *Server) SetAnticipate(winsz uint) {
 
 // SetHook sets the Hook for success and failure of transfers
 func (s *Server) SetHook(hook Hook) {
+	s.Lock()
+	defer s.Unlock()
 	s.hook = hook
+}
+
+type emptyHook struct{}
+
+func (e emptyHook) OnSuccess(TransferStats)        {}
+func (s emptyHook) OnFailure(TransferStats, error) {}
+
+func (s *Server) Hook() Hook {
+	s.Lock()
+	defer s.Unlock()
+	if s.hook != nil {
+		return s.hook
+	}
+	return emptyHook{}
 }
 
 // EnableSinglePort enables an experimental mode where the server will
@@ -115,6 +133,8 @@ func (s *Server) SetHook(hook Hook) {
 //
 // Enabling this will negatively impact performance
 func (s *Server) EnableSinglePort() {
+	s.Lock()
+	defer s.Unlock()
 	s.singlePort = true
 	s.handlers = make(map[string]chan []byte)
 	if s.maxBlockLen == 0 {
@@ -126,6 +146,8 @@ func (s *Server) EnableSinglePort() {
 // round-trip to succeed.
 // Default is 5 seconds.
 func (s *Server) SetTimeout(t time.Duration) {
+	s.Lock()
+	defer s.Unlock()
 	if t <= 0 {
 		s.timeout = defaultTimeout
 	} else {
@@ -141,6 +163,8 @@ func (s *Server) SetTimeout(t time.Duration) {
 // the block size the client wants and the MTU of the interface being
 // communicated over munis overhead.
 func (s *Server) SetBlockSize(i int) {
+	s.Lock()
+	defer s.Unlock()
 	if i > 512 && i < 65465 {
 		s.maxBlockLen = i
 	}
@@ -150,6 +174,8 @@ func (s *Server) SetBlockSize(i int) {
 // packet.
 // Default is 5 attempts.
 func (s *Server) SetRetries(count int) {
+	s.Lock()
+	defer s.Unlock()
 	if count < 1 {
 		s.retries = defaultRetries
 	} else {
@@ -160,6 +186,8 @@ func (s *Server) SetRetries(count int) {
 // SetBackoff sets a user provided function that is called to provide a
 // backoff duration prior to retransmitting an unacknowledged packet.
 func (s *Server) SetBackoff(h backoffFunc) {
+	s.Lock()
+	defer s.Unlock()
 	s.backoff = h
 }
 
@@ -182,13 +210,15 @@ func (s *Server) ListenAndServe(addr string) error {
 // but still want to be able to handle any errors opening connection.
 // Serve returns when Shutdown is called or connection is closed.
 func (s *Server) Serve(conn net.PacketConn) error {
-	defer conn.Close()
+	//	defer conn.Close()
 	laddr := conn.LocalAddr()
 	host, _, err := net.SplitHostPort(laddr.String())
 	if err != nil {
 		return err
 	}
+	s.Lock()
 	s.conn = conn
+	s.Unlock()
 	// Having seperate control paths for IP4 and IP6 is annoying,
 	// but necessary at this point.
 	addr := net.ParseIP(host)
@@ -196,7 +226,7 @@ func (s *Server) Serve(conn net.PacketConn) error {
 		return fmt.Errorf("Failed to determine IP class of listening address")
 	}
 
-	if conn, ok := conn.(*net.UDPConn); ok {
+	if conn, ok := s.conn.(*net.UDPConn); ok {
 		if addr.To4() != nil {
 			s.conn4 = ipv4.NewPacketConn(conn)
 			if err := s.conn4.SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true); err != nil {
@@ -295,12 +325,16 @@ func (s *Server) processRequest() error {
 // server to finish outstanding transfers and stops server.
 func (s *Server) Shutdown() {
 	if !s.singlePort {
+		s.Lock()
 		s.conn.Close()
+		s.Unlock()
 	}
 	s.cancelFn()
 }
 
 func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) error {
+	s.Lock()
+	defer s.Unlock()
 	if s.maxBlockLen > 0 && s.maxBlockLen < maxBlockLen {
 		maxBlockLen = s.maxBlockLen
 	}
@@ -410,7 +444,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 			sendAInit(&rf.sendA, datagramLength, s.sendAWinSz)
 		}
 		s.wg.Add(1)
-		go func() {
+		go func(rh func(string, io.ReaderFrom) error, rf *sender, wg *sync.WaitGroup) {
 			if s.readHandler != nil {
 				err := s.readHandler(filename, rf)
 				if err != nil {
@@ -420,7 +454,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 				rf.abort(fmt.Errorf("server does not support read requests"))
 			}
 			s.wg.Done()
-		}()
+		}(s.readHandler, rf, s.wg)
 	default:
 		return fmt.Errorf("unexpected %T", p)
 	}

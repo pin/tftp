@@ -21,7 +21,9 @@ func (s *Server) singlePortProcessRequests() error {
 				}
 				continue
 			}
+			s.Lock()
 			if receiverChannel, ok := s.handlers[srcAddr.String()]; ok {
+				s.Unlock()
 				select {
 				case receiverChannel <- buf[:cnt]:
 				default:
@@ -30,6 +32,7 @@ func (s *Server) singlePortProcessRequests() error {
 			} else {
 				lc := make(chan []byte, 1)
 				s.handlers[srcAddr.String()] = lc
+				s.Unlock()
 				go func() {
 					err := s.handlePacket(localAddr, srcAddr, buf, cnt, maxSz, lc)
 					if err != nil && s.hook != nil {
@@ -37,7 +40,6 @@ func (s *Server) singlePortProcessRequests() error {
 							SenderAnticipateEnabled: s.sendAEnable,
 						}, err)
 					}
-
 				}()
 			}
 		}

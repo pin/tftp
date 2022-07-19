@@ -80,6 +80,8 @@ func (c *chanConnection) setDeadline(deadline time.Duration) error {
 }
 
 func (c *chanConnection) close() {
+	c.server.Lock()
+	defer c.server.Unlock()
 	close(c.channel)
 	delete(c.server.handlers, c.addr.String())
 }

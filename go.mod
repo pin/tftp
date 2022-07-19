@@ -1,4 +1,4 @@
-module github.com/mtniehaus/tftp/v2
+module github.com/pin/tftp
 
 go 1.13
 

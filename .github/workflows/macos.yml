@@ -1,4 +1,4 @@
-name: MacOS build and test
+name: MacOS test
 
 on:
   push:

@@ -14,8 +14,6 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
-
-	"github.com/stretchr/testify/mock"
 )
 
 var localhost = determineLocalhost()
@@ -153,26 +151,34 @@ func Test1810(t *testing.T) {
 	testSendReceive(t, c, 9000+1810)
 }
 
-type fakeHook struct {
-	mock.Mock
+type testHook struct {
+	*sync.Mutex
+	transfersCompleted int
+	transfersFailed    int
 }
 
-func (f *fakeHook) OnSuccess(result TransferStats) {
-	f.Called(result)
-	return
+func newTestHook() *testHook {
+	return &testHook{
+		Mutex: &sync.Mutex{},
+	}
 }
-func (f *fakeHook) OnFailure(result TransferStats, err error) {
-	f.Called(result)
-	return
+
+func (h *testHook) OnSuccess(result TransferStats) {
+	h.Lock()
+	defer h.Unlock()
+	h.transfersCompleted++
+}
+
+func (h *testHook) OnFailure(result TransferStats, err error) {
+	h.Lock()
+	defer h.Unlock()
+	h.transfersFailed++
 }
 
 func TestHookSuccess(t *testing.T) {
 	s, c := makeTestServer(false)
-	fakeHookTemp := new(fakeHook)
-	// Due to the way test are run there will always be some failures
-	fakeHookTemp.On("OnFailure", mock.AnythingOfType("TransferStats")).Return()
-	fakeHookTemp.On("OnSuccess", mock.AnythingOfType("TransferStats")).Return()
-	s.SetHook(fakeHookTemp)
+	th := newTestHook()
+	s.SetHook(th)
 	c.SetBlockSize(1810)
 	length := int64(9000)
 	filename := fmt.Sprintf("length-%d-bytes-%d", length, time.Now().UnixNano())
@@ -189,14 +195,17 @@ func TestHookSuccess(t *testing.T) {
 		t.Errorf("%s length mismatch: %d != %d", filename, n, length)
 	}
 	s.Shutdown()
-	fakeHookTemp.AssertNumberOfCalls(t, "OnSuccess", 1)
+	th.Lock()
+	defer th.Unlock()
+	if th.transfersCompleted != 1 {
+		t.Errorf("unexpected completed transfers count: %d", th.transfersCompleted)
+	}
 }
 
 func TestHookFailure(t *testing.T) {
 	s, c := makeTestServer(false)
-	fakeHookTemp := new(fakeHook)
-	fakeHookTemp.On("OnFailure", mock.AnythingOfType("TransferStats")).Return()
-	s.SetHook(fakeHookTemp)
+	th := newTestHook()
+	s.SetHook(th)
 	filename := "test-not-exists"
 	mode := "octet"
 	_, err := c.Receive(filename, mode)
@@ -205,7 +214,11 @@ func TestHookFailure(t *testing.T) {
 	}
 	t.Logf("receiving file that does not exist: %v", err)
 	s.Shutdown()
-	fakeHookTemp.AssertExpectations(t)
+	th.Lock()
+	defer th.Unlock()
+	if th.transfersFailed != 1 {
+		t.Errorf("unexpected failed transfers count: %d", th.transfersFailed)
+	}
 }
 
 func TestTSize(t *testing.T) {

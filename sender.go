@@ -68,8 +68,10 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 		r = netascii.ToReader(r)
 	}
 	defer func() {
-		s.conn.close()
-		s.conn = nil
+		if s.conn != nil {
+			s.conn.close()
+			s.conn = nil
+		}
 	}()
 	if s.opts != nil {
 		// check that tsize is set
@@ -260,15 +262,15 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 
 func (s *sender) buildTransferStats() TransferStats {
 	return TransferStats{
-		RemoteAddr:              s.addr.IP,
-		Filename:                s.filename,
-		Tid:                     s.tid,
+		RemoteAddr: s.addr.IP,
+		Filename:   s.filename,
+		Tid:        s.tid,
 		SenderAnticipateEnabled: s.sendA.enabled,
-		Mode:                    s.mode,
-		Opts:                    s.opts,
-		Duration:                time.Now().Sub(s.startTime),
-		DatagramsSent:           s.datagramsSent,
-		DatagramsAcked:          s.datagramsAcked,
+		Mode:           s.mode,
+		Opts:           s.opts,
+		Duration:       time.Now().Sub(s.startTime),
+		DatagramsSent:  s.datagramsSent,
+		DatagramsAcked: s.datagramsAcked,
 	}
 }
 

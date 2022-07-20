@@ -113,20 +113,6 @@ func (s *Server) SetHook(hook Hook) {
 	s.hook = hook
 }
 
-type emptyHook struct{}
-
-func (e emptyHook) OnSuccess(TransferStats)        {}
-func (s emptyHook) OnFailure(TransferStats, error) {}
-
-func (s *Server) Hook() Hook {
-	s.Lock()
-	defer s.Unlock()
-	if s.hook != nil {
-		return s.hook
-	}
-	return emptyHook{}
-}
-
 // EnableSinglePort enables an experimental mode where the server will
 // serve all connections on port 69 only. There will be no random TIDs
 // on the server side.
@@ -279,7 +265,7 @@ func (s *Server) processRequest4() error {
 	buf := make([]byte, datagramLength)
 	cnt, control, srcAddr, err := s.conn4.ReadFrom(buf)
 	if err != nil {
-		return fmt.Errorf("reading UDP: %v", err)
+		return nil
 	}
 	maxSz := blockLength
 	var localAddr net.IP
@@ -297,7 +283,7 @@ func (s *Server) processRequest6() error {
 	buf := make([]byte, datagramLength)
 	cnt, control, srcAddr, err := s.conn6.ReadFrom(buf)
 	if err != nil {
-		return fmt.Errorf("reading UDP: %v", err)
+		return nil
 	}
 	maxSz := blockLength
 	var localAddr net.IP

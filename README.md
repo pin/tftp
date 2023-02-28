@@ -138,7 +138,7 @@ Local and Remote Address
 The `OutgoingTransfer` and `IncomingTransfer` interfaces also provide
 the `RemoteAddr` method which returns the peer IP address and port as
 a `net.UDPAddr`.  The `RequestPacketInfo` interface provides a
-`LocalIP` method with returns the local IP address as a `net.IP` that
+`LocalIP` method which returns the local IP address as a `net.IP` that
 the request is being handled on.  These can be used for detailed
 logging in a server handler, among other things.
 

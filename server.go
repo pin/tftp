@@ -36,7 +36,7 @@ func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 // OS providing methods to inspect the underlying UDP and IP packets
 // directly.
 type RequestPacketInfo interface {
-	// LocalAddr returns the IP address we are servicing the request on.
+	// LocalIP returns the IP address we are servicing the request on.
 	// If it is unable to determine what address that is, the returned
 	// net.IP will be nil.
 	LocalIP() net.IP

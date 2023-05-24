@@ -21,7 +21,7 @@ func TestTo(t *testing.T) {
 	for text, netascii := range basic {
 		to := ToReader(strings.NewReader(text))
 		n, _ := ioutil.ReadAll(to)
-		if bytes.Compare(n, []byte(netascii)) != 0 {
+		if !bytes.Equal(n, []byte(netascii)) {
 			t.Errorf("%q to netascii: %q != %q", text, n, netascii)
 		}
 	}

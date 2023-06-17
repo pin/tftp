@@ -94,15 +94,13 @@ func packUnpack(t *testing.T, filename, mode string, opts options) {
 			t.Errorf("mode mismatch (%s): '%x' vs '%x'",
 				mode, m, mode)
 		}
-		if opts != nil {
-			for name, value := range opts {
-				v, ok := o[name]
-				if !ok {
-					t.Errorf("missing %s option", name)
-				}
-				if v != value {
-					t.Errorf("option %s mismatch: '%x' vs '%x'", name, v, value)
-				}
+		for name, value := range opts {
+			v, ok := o[name]
+			if !ok {
+				t.Errorf("missing %s option", name)
+			}
+			if v != value {
+				t.Errorf("option %s mismatch: '%x' vs '%x'", name, v, value)
 			}
 		}
 	}

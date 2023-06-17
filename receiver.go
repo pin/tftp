@@ -248,7 +248,7 @@ func (r *receiver) buildTransferStats() TransferStats {
 		Tid:            r.tid,
 		Mode:           r.mode,
 		Opts:           r.opts,
-		Duration:       time.Now().Sub(r.startTime),
+		Duration:       time.Since(r.startTime),
 		DatagramsSent:  r.datagramsSent,
 		DatagramsAcked: r.datagramsAcked,
 	}

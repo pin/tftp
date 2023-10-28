@@ -309,6 +309,8 @@ func (s *Server) processRequest() error {
 
 // Shutdown make server stop listening for new requests, allows
 // server to finish outstanding transfers and stops server.
+// Shutdown blocks until all outstanding requests are processed or timed out.
+// Calling Shutdown from the handler or hook might cause deadlock.
 func (s *Server) Shutdown() {
 	if !s.singlePort {
 		s.Lock()
@@ -316,6 +318,7 @@ func (s *Server) Shutdown() {
 		s.Unlock()
 	}
 	s.cancelFn()
+	s.wg.Wait()
 }
 
 func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) error {

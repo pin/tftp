@@ -318,7 +318,9 @@ func (s *Server) Shutdown() {
 		s.Unlock()
 	}
 	s.cancelFn()
-	s.wg.Wait()
+	if !s.singlePort {
+		s.wg.Wait()
+	}
 }
 
 func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) error {

@@ -321,6 +321,14 @@ func (s *Server) Shutdown() {
 func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) error {
 	s.Lock()
 	defer s.Unlock()
+
+	// Cope with packets received on the broadcast address
+	// We can't use this address as the source address in responses
+	// so fallback to the OS default.
+	if localAddr.Equal(net.IPv4bcast) {
+		localAddr = net.IPv4zero
+	}
+
 	// handlePacket is always called with maxBlockLen = blockLength (above, in processRequest).
 	// As a result, the block size would always be capped at 512 bytes, even when the tftp
 	// client indicated to use a larger value.  So override that value.  And make sure to

@@ -194,7 +194,7 @@ func (s *Server) ListenAndServe(addr string) error {
 // Serve starts server provided already opened UDP connection. It is
 // useful for the case when you want to run server in separate goroutine
 // but still want to be able to handle any errors opening connection.
-// Serve returns when Shutdown is called or connection is closed.
+// Serve returns when Shutdown is called.
 func (s *Server) Serve(conn net.PacketConn) error {
 	//	defer conn.Close()
 	laddr := conn.LocalAddr()
@@ -232,7 +232,7 @@ func (s *Server) Serve(conn net.PacketConn) error {
 	for {
 		select {
 		case <-s.cancel.Done():
-			s.wg.Wait()
+			// Stop server because Shutdown was called
 			return nil
 		default:
 			var err error

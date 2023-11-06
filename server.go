@@ -314,7 +314,11 @@ func (s *Server) processRequest() error {
 func (s *Server) Shutdown() {
 	if !s.singlePort {
 		s.Lock()
-		s.conn.Close()
+		// Connection could not exist if Serve or
+		// ListenAndServe was never called.
+		if s.conn != nil {
+			s.conn.Close()
+		}
 		s.Unlock()
 	}
 	s.cancelFn()

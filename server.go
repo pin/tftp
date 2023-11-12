@@ -194,9 +194,8 @@ func (s *Server) ListenAndServe(addr string) error {
 // Serve starts server provided already opened UDP connection. It is
 // useful for the case when you want to run server in separate goroutine
 // but still want to be able to handle any errors opening connection.
-// Serve returns when Shutdown is called or connection is closed.
+// Serve returns when Shutdown is called.
 func (s *Server) Serve(conn net.PacketConn) error {
-	//	defer conn.Close()
 	laddr := conn.LocalAddr()
 	host, _, err := net.SplitHostPort(laddr.String())
 	if err != nil {
@@ -232,7 +231,7 @@ func (s *Server) Serve(conn net.PacketConn) error {
 	for {
 		select {
 		case <-s.cancel.Done():
-			s.wg.Wait()
+			// Stop server because Shutdown was called
 			return nil
 		default:
 			var err error
@@ -250,7 +249,6 @@ func (s *Server) Serve(conn net.PacketConn) error {
 			}
 		}
 	}
-	return nil
 }
 
 // Yes, I don't really like having separate IPv4 and IPv6 variants,
@@ -309,13 +307,22 @@ func (s *Server) processRequest() error {
 
 // Shutdown make server stop listening for new requests, allows
 // server to finish outstanding transfers and stops server.
+// Shutdown blocks until all outstanding requests are processed or timed out.
+// Calling Shutdown from the handler or hook might cause deadlock.
 func (s *Server) Shutdown() {
 	if !s.singlePort {
 		s.Lock()
-		s.conn.Close()
+		// Connection could not exist if Serve or
+		// ListenAndServe was never called.
+		if s.conn != nil {
+			s.conn.Close()
+		}
 		s.Unlock()
 	}
 	s.cancelFn()
+	if !s.singlePort {
+		s.wg.Wait()
+	}
 }
 
 func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) error {

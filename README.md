@@ -17,7 +17,7 @@ Set of features is sufficient for PXE boot support.
 import "github.com/pin/tftp/v3"
 ```
 
-The package is cohesive to Golang `io`. Particularly it implements
+The package is cohesive to Golang `io` and implements
 `io.ReaderFrom` and `io.WriterTo` interfaces. That allows efficient data
 transmission without unnecessary memory copying and allocations.
 
@@ -71,6 +71,8 @@ func main() {
 }
 ```
 
+See [gotftpd](https://github.com/pin/golang-tftp-example/blob/master/src/gotftpd/main.go) in [golang-tftp-example](https://github.com/pin/golang-tftp-example) repository for working code.
+
 TFTP Client
 -----------
 Upload file to server:
@@ -98,7 +100,7 @@ n, err := wt.WriteTo(file)
 fmt.Printf("%d bytes received\n", n)
 ```
 
-Note: please handle errors better :)
+See [goftp](https://github.com/pin/golang-tftp-example/blob/master/src/gotftp/main.go) in [golang-tftp-example](https://github.com/pin/golang-tftp-example) repository for working code.
 
 TSize option
 ------------

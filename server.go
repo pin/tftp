@@ -196,7 +196,6 @@ func (s *Server) ListenAndServe(addr string) error {
 // but still want to be able to handle any errors opening connection.
 // Serve returns when Shutdown is called.
 func (s *Server) Serve(conn net.PacketConn) error {
-	//	defer conn.Close()
 	laddr := conn.LocalAddr()
 	host, _, err := net.SplitHostPort(laddr.String())
 	if err != nil {
@@ -250,7 +249,6 @@ func (s *Server) Serve(conn net.PacketConn) error {
 			}
 		}
 	}
-	return nil
 }
 
 // Yes, I don't really like having separate IPv4 and IPv6 variants,

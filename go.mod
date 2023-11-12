@@ -1,5 +1,7 @@
 module github.com/pin/tftp/v3
 
-go 1.13
+go 1.18
 
-require golang.org/x/net v0.0.0-20200202094626-16171245cfb2
+require golang.org/x/net v0.15.0
+
+require golang.org/x/sys v0.13.0 // indirect

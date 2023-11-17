@@ -179,3 +179,8 @@ or, for no backoff
 ```go
 	s.SetBackoff(func (int) time.Duration { return 0 })
 ```
+
+Distribution packages
+---------------------
+* Debian: [golang-github-pin-tftp](https://packages.debian.org/source/sid/golang-github-pin-tftp)
+* Fedora: [golang-github-pin-tftp-3](https://packages.fedoraproject.org/pkgs/golang-github-pin-tftp-3/golang-github-pin-tftp-3-devel/)

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pin/tftp/v3/netascii"
+	"github.com/waldner/tftp/v3/netascii"
 )
 
 // OutgoingTransfer provides methods to set the outgoing transfer size and
@@ -278,6 +278,11 @@ func (s *sender) abort(err error) error {
 	if s.conn == nil {
 		return nil
 	}
+	defer func() {
+		s.conn.close()
+		s.conn = nil
+	}()
+
 	if s.hook != nil {
 		s.hook.OnFailure(s.buildTransferStats(), err)
 	}
@@ -286,7 +291,5 @@ func (s *sender) abort(err error) error {
 	if err != nil {
 		return err
 	}
-	s.conn.close()
-	s.conn = nil
 	return nil
 }

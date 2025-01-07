@@ -35,10 +35,13 @@ func (s *Server) singlePortProcessRequests() error {
 				s.Unlock()
 				go func() {
 					err := s.handlePacket(localAddr, srcAddr, buf, cnt, maxSz, lc)
-					if err != nil && s.hook != nil {
-						s.hook.OnFailure(TransferStats{
-							SenderAnticipateEnabled: s.sendAEnable,
-						}, err)
+					if err != nil {
+						if s.hook != nil {
+							s.hook.OnFailure(TransferStats{
+								SenderAnticipateEnabled: s.sendAEnable,
+							}, err)
+						}
+						delete(s.handlers, srcAddr.String())
 					}
 				}()
 			}

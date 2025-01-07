@@ -258,6 +258,12 @@ func (r *receiver) abort(err error) error {
 	if r.conn == nil {
 		return nil
 	}
+
+	defer func() {
+		r.conn.close()
+		r.conn = nil
+	}()
+
 	if r.hook != nil {
 		r.hook.OnFailure(r.buildTransferStats(), err)
 	}
@@ -266,7 +272,5 @@ func (r *receiver) abort(err error) error {
 	if err != nil {
 		return err
 	}
-	r.conn.close()
-	r.conn = nil
 	return nil
 }

@@ -19,7 +19,7 @@ import (
 func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 	writeHandler func(filename string, wt io.WriterTo) error) *Server {
 	s := &Server{
-		Mutex:             &sync.Mutex{},
+		mu:                &sync.Mutex{},
 		timeout:           defaultTimeout,
 		retries:           defaultRetries,
 		packetReadTimeout: 100 * time.Millisecond,
@@ -44,7 +44,7 @@ type RequestPacketInfo interface {
 
 // Server is an instance of a TFTP server
 type Server struct {
-	*sync.Mutex
+	mu           *sync.Mutex
 	readHandler  func(filename string, rf io.ReaderFrom) error
 	writeHandler func(filename string, wt io.WriterTo) error
 	hook         Hook
@@ -95,8 +95,8 @@ type Hook interface {
 // runs through a different experimental code path. When winsz is 0 or 1,
 // the feature is disabled.
 func (s *Server) SetAnticipate(winsz uint) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if winsz > 1 {
 		s.sendAEnable = true
 		s.sendAWinSz = winsz
@@ -108,8 +108,8 @@ func (s *Server) SetAnticipate(winsz uint) {
 
 // SetHook sets the Hook for success and failure of transfers
 func (s *Server) SetHook(hook Hook) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.hook = hook
 }
 
@@ -119,8 +119,8 @@ func (s *Server) SetHook(hook Hook) {
 //
 // Enabling this will negatively impact performance
 func (s *Server) EnableSinglePort() {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.singlePort = true
 	s.handlers = make(map[string]chan []byte)
 	if s.maxBlockLen == 0 {
@@ -132,8 +132,8 @@ func (s *Server) EnableSinglePort() {
 // round-trip to succeed.
 // Default is 5 seconds.
 func (s *Server) SetTimeout(t time.Duration) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if t <= 0 {
 		s.timeout = defaultTimeout
 	} else {
@@ -143,14 +143,14 @@ func (s *Server) SetTimeout(t time.Duration) {
 
 // SetBlockSize sets the maximum size of an individual data block.
 // This must be a value between 512 (the default block size for TFTP)
-// and 65456 (the max size a UDP packet payload can be).
+// and 65465 (the max size a UDP packet payload can be).
 //
 // This is an advisory value -- it will be clamped to the smaller of
 // the block size the client wants and the MTU of the interface being
 // communicated over munis overhead.
 func (s *Server) SetBlockSize(i int) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if i > 512 && i < 65465 {
 		s.maxBlockLen = i
 	}
@@ -160,8 +160,8 @@ func (s *Server) SetBlockSize(i int) {
 // packet.
 // Default is 5 attempts.
 func (s *Server) SetRetries(count int) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if count < 1 {
 		s.retries = defaultRetries
 	} else {
@@ -172,8 +172,8 @@ func (s *Server) SetRetries(count int) {
 // SetBackoff sets a user provided function that is called to provide a
 // backoff duration prior to retransmitting an unacknowledged packet.
 func (s *Server) SetBackoff(h backoffFunc) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.backoff = h
 }
 
@@ -201,9 +201,9 @@ func (s *Server) Serve(conn net.PacketConn) error {
 	if err != nil {
 		return err
 	}
-	s.Lock()
+	s.mu.Lock()
 	s.conn = conn
-	s.Unlock()
+	s.mu.Unlock()
 	// Having seperate control paths for IP4 and IP6 is annoying,
 	// but necessary at this point.
 	addr := net.ParseIP(host)
@@ -311,13 +311,13 @@ func (s *Server) processRequest() error {
 // Calling Shutdown from the handler or hook might cause deadlock.
 func (s *Server) Shutdown() {
 	if !s.singlePort {
-		s.Lock()
+		s.mu.Lock()
 		// Connection could not exist if Serve or
 		// ListenAndServe was never called.
 		if s.conn != nil {
 			s.conn.Close()
 		}
-		s.Unlock()
+		s.mu.Unlock()
 	}
 	s.cancelFn()
 	if !s.singlePort {
@@ -326,8 +326,8 @@ func (s *Server) Shutdown() {
 }
 
 func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) error {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// Cope with packets received on the broadcast address
 	// We can't use this address as the source address in responses

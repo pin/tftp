@@ -952,3 +952,105 @@ var errWrite = errors.New("write error")
 func (r *failingWriter) Write(_ []byte) (int, error) {
 	return 0, errWrite
 }
+
+// countingWriter signals through a channel when a certain number of bytes have been written
+type countingWriter struct {
+	w         io.Writer
+	total     int64
+	threshold int64
+	signal    chan struct{}
+	signaled  bool
+}
+
+func (w *countingWriter) Write(p []byte) (n int, err error) {
+	n, err = w.w.Write(p)
+	w.total += int64(n)
+	if !w.signaled && w.total >= w.threshold {
+		w.signal <- struct{}{}
+		w.signaled = true
+	}
+	return n, err
+}
+
+// TestShutdownDuringTransfer starts a transfer, then shuts down the server mid-transfer.
+// Checks that neither server nor client hang and server shuts down cleanly.
+func TestShutdownDuringTransfer(t *testing.T) {
+	s := NewServer(
+		func(_ string, rf io.ReaderFrom) error {
+			// Simulate a slow reader: send 1MB, but slowly
+			_, err := rf.ReadFrom(&slowReader{r: bytes.NewReader(make([]byte, 1<<23)), n: 1 << 20, delay: 10 * time.Millisecond})
+			return err
+		},
+		func(_ string, wt io.WriterTo) error {
+			return nil
+		},
+	)
+
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
+	if err != nil {
+		t.Fatalf("listen UDP: %v", err)
+	}
+	defer conn.Close()
+
+	_, port, err := net.SplitHostPort(conn.LocalAddr().String())
+	if err != nil {
+		t.Fatalf("parsing server port: %v", err)
+	}
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- s.Serve(conn)
+	}()
+
+	c, err := NewClient(net.JoinHostPort(localhost, port))
+	if err != nil {
+		t.Fatalf("creating new client: %v", err)
+	}
+
+	dl := make(chan error, 1)
+	received := make(chan struct{}, 1)
+	go func() {
+		wt, err := c.Receive("file", "octet")
+		if err != nil {
+			dl <- err
+			return
+		}
+		// Use custom writer to signal when 100KB is received
+		counter := &countingWriter{
+			w:         io.Discard,
+			threshold: 100 * 1024, // 100KB
+			signal:    received,
+		}
+		_, err = wt.WriteTo(counter)
+		dl <- err
+	}()
+
+	// Wait for either 100KB to be received or timeout
+	select {
+	case <-received:
+		// Received enough data, proceed with shutdown
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for data transfer to start")
+	}
+	s.Shutdown()
+
+	// Server should shut down cleanly
+	select {
+	case err := <-errChan:
+		if err != nil {
+			t.Errorf("server error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("server did not shut down in time")
+	}
+
+	// Client should shutdown cleanly too because server waits for transfer to finish
+	select {
+	case err := <-dl:
+		if err != nil {
+			t.Errorf("client transfer error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("client did not finish in time")
+	}
+}

@@ -208,7 +208,7 @@ func (s *Server) Serve(conn net.PacketConn) error {
 	// but necessary at this point.
 	addr := net.ParseIP(host)
 	if addr == nil {
-		return fmt.Errorf("Failed to determine IP class of listening address")
+		return fmt.Errorf("failed to determine IP class of listening address")
 	}
 
 	if conn, ok := s.conn.(*net.UDPConn); ok {

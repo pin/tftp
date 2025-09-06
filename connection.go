@@ -40,7 +40,6 @@ type chanConnection struct {
 	channel       chan []byte
 	srcAddr, addr *net.UDPAddr
 	timeout       time.Duration
-	complete      chan string
 }
 
 func (c *chanConnection) sendTo(data []byte, addr *net.UDPAddr) error {
@@ -67,9 +66,7 @@ func (c *chanConnection) sendTo(data []byte, addr *net.UDPAddr) error {
 func (c *chanConnection) readFrom(buffer []byte) (int, *net.UDPAddr, error) {
 	select {
 	case data := <-c.channel:
-		for i := range data {
-			buffer[i] = data[i]
-		}
+		copy(buffer, data)
 		return len(data), c.addr, nil
 	case <-time.After(c.timeout):
 		return 0, nil, makeError(c.addr.String())
@@ -98,7 +95,7 @@ func makeError(addr string) net.Error {
 		timeout:   true,
 		temporary: true,
 	}
-	error.error = fmt.Errorf("Channel timeout: %v", addr)
+	error.error = fmt.Errorf("channel timeout: %v", addr)
 	return &error
 }
 

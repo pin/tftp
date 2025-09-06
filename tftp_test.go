@@ -960,6 +960,25 @@ func (r *failingWriter) Write(_ []byte) (int, error) {
 	return 0, errWrite
 }
 
+// countingWriter signals through a channel when a certain number of bytes have been written
+type countingWriter struct {
+	w         io.Writer
+	total     int64
+	threshold int64
+	signal    chan struct{}
+	signaled  bool
+}
+
+func (w *countingWriter) Write(p []byte) (n int, err error) {
+	n, err = w.w.Write(p)
+	w.total += int64(n)
+	if !w.signaled && w.total >= w.threshold {
+		w.signal <- struct{}{}
+		w.signaled = true
+	}
+	return n, err
+}
+
 // TestShutdownDuringTransfer starts a transfer, then shuts down the server mid-transfer.
 // Checks that neither server nor client hang and server shuts down cleanly.
 func TestShutdownDuringTransfer(t *testing.T) {
@@ -996,17 +1015,30 @@ func TestShutdownDuringTransfer(t *testing.T) {
 	}
 
 	dl := make(chan error, 1)
+	received := make(chan struct{}, 1)
 	go func() {
 		wt, err := c.Receive("file", "octet")
 		if err != nil {
 			dl <- err
 			return
 		}
-		_, err = wt.WriteTo(io.Discard)
+		// Use custom writer to signal when 100KB is received
+		counter := &countingWriter{
+			w:         io.Discard,
+			threshold: 100 * 1024, // 100KB
+			signal:    received,
+		}
+		_, err = wt.WriteTo(counter)
 		dl <- err
 	}()
 
-	time.Sleep(50 * time.Millisecond) // Let transfer start
+	// Wait for either 100KB to be received or timeout
+	select {
+	case <-received:
+		// Received enough data, proceed with shutdown
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for data transfer to start")
+	}
 	s.Shutdown()
 
 	// Server should shut down cleanly

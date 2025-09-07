@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net"
 	"os"
@@ -289,7 +288,7 @@ func TestByOneByte(t *testing.T) {
 	if n != length {
 		t.Errorf("%s read length mismatch: %d != %d", filename, n, length)
 	}
-	bs, _ := ioutil.ReadAll(io.LimitReader(
+	bs, _ := io.ReadAll(io.LimitReader(
 		newRandReader(rand.NewSource(42)), length))
 	if !bytes.Equal(bs, buf.Bytes()) {
 		t.Errorf("\nsent: %x\nrcvd: %x", bs, buf)
@@ -365,7 +364,7 @@ func testSendReceive(t *testing.T, client *Client, length int64) {
 	if n != length {
 		t.Errorf("%s read length mismatch: %d != %d", filename, n, length)
 	}
-	bs, _ := ioutil.ReadAll(io.LimitReader(
+	bs, _ := io.ReadAll(io.LimitReader(
 		newRandReader(rand.NewSource(42)), length))
 	if !bytes.Equal(bs, buf.Bytes()) {
 		t.Errorf("\nsent: %x\nrcvd: %x", bs, buf)
@@ -410,7 +409,7 @@ func TestSendTsizeFromSeek(t *testing.T) {
 		t.Errorf("size expected: 100, got %d", size)
 	}
 
-	r.WriteTo(ioutil.Discard)
+	r.WriteTo(io.Discard)
 
 	c.RequestTSize(false)
 	r, _ = c.Receive("f", "octet")
@@ -421,7 +420,7 @@ func TestSendTsizeFromSeek(t *testing.T) {
 		}
 	}
 
-	r.WriteTo(ioutil.Discard)
+	r.WriteTo(io.Discard)
 }
 
 type testBackend struct {
@@ -767,7 +766,7 @@ func TestRequestPacketInfo(t *testing.T) {
 				localIP = net.IP{}
 			}
 			localIPMu.Unlock()
-			_, err := wt.WriteTo(ioutil.Discard)
+			_, err := wt.WriteTo(io.Discard)
 			if err != nil {
 				t.Logf("receiving from client: %v", err)
 			}
@@ -842,7 +841,7 @@ func TestRequestPacketInfo(t *testing.T) {
 			t.Logf("start receiving from %v: %v", ip, err)
 			continue
 		}
-		_, err = it.WriteTo(ioutil.Discard)
+		_, err = it.WriteTo(io.Discard)
 		if err != nil {
 			t.Logf("receiving from %v: %v", ip, err)
 			continue

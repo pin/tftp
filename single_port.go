@@ -41,7 +41,14 @@ func (s *Server) singlePortProcessRequests() error {
 								SenderAnticipateEnabled: s.sendAEnable,
 							}, err)
 						}
+						// Normally handlePacket starts an incoming or outgoing transfer,
+						// and creates a connection object that cleans up the entry in handlers map
+						// at the end of the transfer.
+						// But when handlePacket fails, it doesn't create transfer and connection,
+						// we still need to clean up the map entry.
+						s.mu.Lock()
 						delete(s.handlers, srcAddr.String())
+						s.mu.Unlock()
 					}
 				}()
 			}

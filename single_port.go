@@ -2,46 +2,66 @@ package tftp
 
 import (
 	"net"
+	"time"
 )
 
 func (s *Server) singlePortProcessRequests() error {
+	shuttingDown := false
 	for {
 		select {
 		case <-s.cancel.Done():
-			s.wg.Wait()
-			return nil
+			shuttingDown = true
 		default:
-			buf := make([]byte, s.maxBlockLen+4)
-			cnt, localAddr, srcAddr, maxSz, err := s.getPacket(buf)
-			if err != nil || cnt == 0 {
-				if s.hook != nil {
+		}
+
+		if shuttingDown {
+			// So we not blocked forever waiting for a packet
+			s.conn.SetReadDeadline(time.Now().Add(time.Second))
+		}
+
+		buf := make([]byte, s.maxBlockLen+4)
+		cnt, localAddr, srcAddr, maxSz, err := s.getPacket(buf)
+		if err != nil {
+			if shuttingDown {
+				s.wg.Wait()
+				return nil
+			}
+			if s.hook != nil {
+				s.hook.OnFailure(TransferStats{
+					SenderAnticipateEnabled: s.sendAEnable,
+				}, err)
+			}
+			continue
+		}
+		if cnt == 0 {
+			continue
+		}
+		s.Lock()
+		if receiverChannel, ok := s.handlers[srcAddr.String()]; ok {
+			// Packet received for a transfer in progress.
+			s.Unlock()
+			select {
+			case receiverChannel <- buf[:cnt]:
+			default:
+				// We don't want to block the main loop if a channel is full
+			}
+		} else {
+			// No existing transfer for given source address. Start a new one.
+			if shuttingDown {
+				s.Unlock()
+				continue
+			}
+			lc := make(chan []byte, 1)
+			s.handlers[srcAddr.String()] = lc
+			s.Unlock()
+			go func() {
+				err := s.handlePacket(localAddr, srcAddr, buf, cnt, maxSz, lc)
+				if err != nil && s.hook != nil {
 					s.hook.OnFailure(TransferStats{
 						SenderAnticipateEnabled: s.sendAEnable,
 					}, err)
 				}
-				continue
-			}
-			s.Lock()
-			if receiverChannel, ok := s.handlers[srcAddr.String()]; ok {
-				s.Unlock()
-				select {
-				case receiverChannel <- buf[:cnt]:
-				default:
-					// We don't want to block the main loop if a channel is full
-				}
-			} else {
-				lc := make(chan []byte, 1)
-				s.handlers[srcAddr.String()] = lc
-				s.Unlock()
-				go func() {
-					err := s.handlePacket(localAddr, srcAddr, buf, cnt, maxSz, lc)
-					if err != nil && s.hook != nil {
-						s.hook.OnFailure(TransferStats{
-							SenderAnticipateEnabled: s.sendAEnable,
-						}, err)
-					}
-				}()
-			}
+			}()
 		}
 	}
 }

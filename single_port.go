@@ -15,7 +15,8 @@ func (s *Server) singlePortProcessRequests() error {
 		}
 
 		if shuttingDown {
-			// So we not blocked forever waiting for a packet
+			// s.getPacket will wait for an incoming packet for a second, When nothing
+			// comes, it will exit with error which will complete the server shutdown.
 			s.conn.SetReadDeadline(time.Now().Add(time.Second))
 		}
 
@@ -23,6 +24,11 @@ func (s *Server) singlePortProcessRequests() error {
 		cnt, localAddr, srcAddr, maxSz, err := s.getPacket(buf)
 		if err != nil {
 			if shuttingDown {
+				// We got error trying to read from connection while shutting down.
+				// Stop listening for incoming packets.
+				s.conn.Close()
+				// Wait for all transfers to finish, any outstanding transfer should abort trying to read
+				// from the closed connection.
 				s.wg.Wait()
 				return nil
 			}
@@ -54,24 +60,22 @@ func (s *Server) singlePortProcessRequests() error {
 			lc := make(chan []byte, 1)
 			s.handlers[srcAddr.String()] = lc
 			s.mu.Unlock()
-			go func() {
-				err := s.handlePacket(localAddr, srcAddr, buf, cnt, maxSz, lc)
-				if err != nil {
-					if s.hook != nil {
-						s.hook.OnFailure(TransferStats{
-							SenderAnticipateEnabled: s.sendAEnable,
-						}, err)
-					}
-					// Normally handlePacket starts an incoming or outgoing transfer,
-					// and creates a connection object that cleans up the entry in handlers map
-					// at the end of the transfer.
-					// But when handlePacket fails, it doesn't create transfer and connection,
-					// we still need to clean up the map entry.
-					s.mu.Lock()
-					delete(s.handlers, srcAddr.String())
-					s.mu.Unlock()
+			err := s.handlePacket(localAddr, srcAddr, buf, cnt, maxSz, lc)
+			if err != nil {
+				if s.hook != nil {
+					s.hook.OnFailure(TransferStats{
+						SenderAnticipateEnabled: s.sendAEnable,
+					}, err)
 				}
-			}()
+				// Normally handlePacket starts an incoming or outgoing transfer,
+				// and creates a connection object that cleans up the entry in handlers map
+				// at the end of the transfer.
+				// But when handlePacket fails, it doesn't create transfer and connection,
+				// we still need to clean up the map entry.
+				s.mu.Lock()
+				delete(s.handlers, srcAddr.String())
+				s.mu.Unlock()
+			}
 		}
 	}
 }

@@ -34,6 +34,7 @@ func readHandler(filename string, rf io.ReaderFrom) error {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return err
 	}
+	defer file.Close()
 	n, err := rf.ReadFrom(file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -50,6 +51,7 @@ func writeHandler(filename string, wt io.WriterTo) error {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return err
 	}
+	defer file.Close()
 	n, err := wt.WriteTo(file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -80,6 +82,10 @@ Upload file to server:
 ```go
 c, err := tftp.NewClient("172.16.4.21:69")
 file, err := os.Open(path)
+if err != nil {
+	return err
+}
+defer file.Close()
 c.SetTimeout(5 * time.Second) // optional
 rf, err := c.Send("foobar.txt", "octet")
 n, err := rf.ReadFrom(file)
@@ -92,6 +98,10 @@ Download file from server:
 c, err := tftp.NewClient("172.16.4.21:69")
 wt, err := c.Receive("foobar.txt", "octet")
 file, err := os.Create(path)
+if err != nil {
+	return err
+}
+defer file.Close()
 // Optionally obtain transfer size before actual data.
 if n, ok := wt.(tftp.IncomingTransfer).Size(); ok {
 	fmt.Printf("Transfer size: %d\n", n)

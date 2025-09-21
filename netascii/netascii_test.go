@@ -2,7 +2,7 @@ package netascii
 
 import (
 	"bytes"
-	"io/ioutil"
+	"io"
 	"strings"
 	"testing"
 	"testing/iotest"
@@ -20,7 +20,7 @@ var basic = map[string]string{
 func TestTo(t *testing.T) {
 	for text, netascii := range basic {
 		to := ToReader(strings.NewReader(text))
-		n, _ := ioutil.ReadAll(to)
+		n, _ := io.ReadAll(to)
 		if !bytes.Equal(n, []byte(netascii)) {
 			t.Errorf("%q to netascii: %q != %q", text, n, netascii)
 		}
@@ -33,7 +33,7 @@ func TestFrom(t *testing.T) {
 		b := &bytes.Buffer{}
 		from := FromWriter(b)
 		r.WriteTo(from)
-		n, _ := ioutil.ReadAll(b)
+		n, _ := io.ReadAll(b)
 		if string(n) != text {
 			t.Errorf("%q from netascii: %q != %q", netascii, n, text)
 		}
@@ -69,7 +69,7 @@ func TestWriteRead(t *testing.T) {
 	two := &bytes.Buffer{}
 	from := FromWriter(two)
 	one.WriteTo(from)
-	text2, _ := ioutil.ReadAll(two)
+	text2, _ := io.ReadAll(two)
 	if text != string(text2) {
 		t.Errorf("text mismatch \n%x \n%x", text, text2)
 	}
@@ -82,7 +82,7 @@ func TestOneByte(t *testing.T) {
 	two := &bytes.Buffer{}
 	from := FromWriter(two)
 	one.WriteTo(from)
-	text2, _ := ioutil.ReadAll(two)
+	text2, _ := io.ReadAll(two)
 	if text != string(text2) {
 		t.Errorf("text mismatch \n%x \n%x", text, text2)
 	}

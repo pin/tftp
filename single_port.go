@@ -21,9 +21,9 @@ func (s *Server) singlePortProcessRequests() error {
 				}
 				continue
 			}
-			s.Lock()
+			s.mu.Lock()
 			if receiverChannel, ok := s.handlers[srcAddr.String()]; ok {
-				s.Unlock()
+				s.mu.Unlock()
 				select {
 				case receiverChannel <- buf[:cnt]:
 				default:
@@ -32,13 +32,23 @@ func (s *Server) singlePortProcessRequests() error {
 			} else {
 				lc := make(chan []byte, 1)
 				s.handlers[srcAddr.String()] = lc
-				s.Unlock()
+				s.mu.Unlock()
 				go func() {
 					err := s.handlePacket(localAddr, srcAddr, buf, cnt, maxSz, lc)
-					if err != nil && s.hook != nil {
-						s.hook.OnFailure(TransferStats{
-							SenderAnticipateEnabled: s.sendAEnable,
-						}, err)
+					if err != nil {
+						if s.hook != nil {
+							s.hook.OnFailure(TransferStats{
+								SenderAnticipateEnabled: s.sendAEnable,
+							}, err)
+						}
+						// Normally handlePacket starts an incoming or outgoing transfer,
+						// and creates a connection object that cleans up the entry in handlers map
+						// at the end of the transfer.
+						// But when handlePacket fails, it doesn't create transfer and connection,
+						// we still need to clean up the map entry.
+						s.mu.Lock()
+						delete(s.handlers, srcAddr.String())
+						s.mu.Unlock()
 					}
 				}()
 			}

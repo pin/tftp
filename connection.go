@@ -45,8 +45,8 @@ type chanConnection struct {
 
 func (c *chanConnection) sendTo(data []byte, addr *net.UDPAddr) error {
 	var err error
-	c.server.Lock()
-	defer c.server.Unlock()
+	c.server.mu.Lock()
+	defer c.server.mu.Unlock()
 	if conn, ok := c.server.conn.(*net.UDPConn); ok {
 		srcAddr := c.srcAddr.IP.To4()
 		var cmm []byte
@@ -82,8 +82,8 @@ func (c *chanConnection) setDeadline(deadline time.Duration) error {
 }
 
 func (c *chanConnection) close() {
-	c.server.Lock()
-	defer c.server.Unlock()
+	c.server.mu.Lock()
+	defer c.server.mu.Unlock()
 	close(c.channel)
 	delete(c.server.handlers, c.addr.String())
 }

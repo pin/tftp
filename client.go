@@ -15,9 +15,30 @@ func NewClient(addr string) (*Client, error) {
 		return nil, fmt.Errorf("resolving address %s: %v", addr, err)
 	}
 	return &Client{
+		addr:      a,
+		timeout:   defaultTimeout,
+		retries:   defaultRetries,
+		localAddr: &net.UDPAddr{},
+	}, nil
+}
+
+// NewClient creates TFTP client for server on address provided.
+func NewClientWithLocalAddr(addr string, laddr string) (*Client, error) {
+	if laddr == "" {
+		return nil, fmt.Errorf("local addr is empty")
+	}
+	a, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("resolving address %s: %v", addr, err)
+	}
+	return &Client{
 		addr:    a,
 		timeout: defaultTimeout,
 		retries: defaultRetries,
+		localAddr: &net.UDPAddr{
+			IP:   net.ParseIP(laddr),
+			Port: 0,
+		},
 	}, nil
 }
 
@@ -57,17 +78,18 @@ func (c *Client) RequestTSize(s bool) {
 
 // Client stores data about a single TFTP client
 type Client struct {
-	addr    *net.UDPAddr
-	timeout time.Duration
-	retries int
-	backoff backoffFunc
-	blksize int
-	tsize   bool
+	addr      *net.UDPAddr
+	timeout   time.Duration
+	retries   int
+	backoff   backoffFunc
+	blksize   int
+	tsize     bool
+	localAddr *net.UDPAddr
 }
 
 // Send starts outgoing file transmission. It returns io.ReaderFrom or error.
 func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
+	conn, err := net.ListenUDP("udp", c.localAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +119,7 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 
 // Receive starts incoming file transmission. It returns io.WriterTo or error.
 func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
+	conn, err := net.ListenUDP("udp", c.localAddr)
 	if err != nil {
 		return nil, err
 	}

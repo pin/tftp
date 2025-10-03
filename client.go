@@ -22,10 +22,13 @@ func NewClient(addr string) (*Client, error) {
 	}, nil
 }
 
-// NewClient creates TFTP client for server on address provided.
-func NewClientWithLocalAddr(addr string, laddr string) (*Client, error) {
-	if laddr == "" {
-		return nil, fmt.Errorf("local addr is empty")
+// NewClientWithLocalAddr creates TFTP client for server on local ip address laddr provided.
+func NewClientWithLocalAddr(addr string, localaddr string) (*Client, error) {
+	if localaddr == "" {
+		return nil, fmt.Errorf("localaddr is empty")
+	}
+	if net.ParseIP(localaddr) == nil {
+		return nil, fmt.Errorf("provided localaddr: %s is not valid ip addr", localaddr)
 	}
 	a, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -36,7 +39,7 @@ func NewClientWithLocalAddr(addr string, laddr string) (*Client, error) {
 		timeout: defaultTimeout,
 		retries: defaultRetries,
 		localAddr: &net.UDPAddr{
-			IP:   net.ParseIP(laddr),
+			IP:   net.ParseIP(localaddr),
 			Port: 0,
 		},
 	}, nil

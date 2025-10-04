@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/tejaskumark/tftp/v1/netascii"
+	"github.com/tejaskumark/tftp/netascii"
 )
 
 // IncomingTransfer provides methods that expose information associated with

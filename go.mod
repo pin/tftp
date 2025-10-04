@@ -1,4 +1,4 @@
-module github.com/tejaskumark/tftp/v1
+module github.com/tejaskumark/tftp
 
 go 1.23.0
 

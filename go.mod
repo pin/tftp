@@ -1,4 +1,4 @@
-module github.com/pin/tftp/v3
+module github.com/tejaskumar/tftp
 
 go 1.23.0
 

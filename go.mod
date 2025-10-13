@@ -1,11 +1,6 @@
-module github.com/tejaskumark/tftp/v2
+module github.com/pin/tftp/v2
 
 go 1.23.0
-
-retract (
-	v1.0.1 // Contains retractions only.
-	v1.0.0 // Published accidentally.
-)
 
 require golang.org/x/net v0.43.0
 

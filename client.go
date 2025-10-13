@@ -22,27 +22,20 @@ func NewClient(addr string) (*Client, error) {
 	}, nil
 }
 
-// NewClientWithLocalAddr creates TFTP client for server on local ip address laddr provided.
-func NewClientWithLocalAddr(addr string, localaddr string) (*Client, error) {
+// SetLocalAddr sets the local IP address to use while reaching to remote TFTP endpoint
+// Default is kernel choose IP address on it's own
+func (c *Client) SetLocalAddr(localaddr string) error {
 	if localaddr == "" {
-		return nil, fmt.Errorf("localaddr is empty")
+		return fmt.Errorf("localaddr is empty")
 	}
 	if net.ParseIP(localaddr) == nil {
-		return nil, fmt.Errorf("provided localaddr: %s is not valid ip addr", localaddr)
+		return fmt.Errorf("provided localaddr: %s is not valid ip addr", localaddr)
 	}
-	a, err := net.ResolveUDPAddr("udp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("resolving address %s: %v", addr, err)
+	c.localAddr = &net.UDPAddr{
+		IP:   net.ParseIP(localaddr),
+		Port: 0,
 	}
-	return &Client{
-		addr:    a,
-		timeout: defaultTimeout,
-		retries: defaultRetries,
-		localAddr: &net.UDPAddr{
-			IP:   net.ParseIP(localaddr),
-			Port: 0,
-		},
-	}, nil
+	return nil
 }
 
 // SetTimeout sets maximum time client waits for single network round-trip to succeed.
@@ -92,9 +85,13 @@ type Client struct {
 
 // Send starts outgoing file transmission. It returns io.ReaderFrom or error.
 func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
-	conn, err := net.ListenUDP("udp", c.localAddr)
-	if err != nil {
-		return nil, err
+	var conn *net.UDPConn
+	var err error
+	if c.localAddr != nil {
+		conn, err = net.ListenUDP("udp", c.localAddr)
+		if err != nil {
+			return nil, err
+		}
 	}
 	s := &sender{
 		send:    make([]byte, datagramLength),
@@ -122,9 +119,13 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 
 // Receive starts incoming file transmission. It returns io.WriterTo or error.
 func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
-	conn, err := net.ListenUDP("udp", c.localAddr)
-	if err != nil {
-		return nil, err
+	var conn *net.UDPConn
+	var err error
+	if c.localAddr != nil {
+		conn, err = net.ListenUDP("udp", c.localAddr)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if c.timeout == 0 {
 		c.timeout = defaultTimeout

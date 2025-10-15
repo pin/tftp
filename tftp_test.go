@@ -952,3 +952,80 @@ var errWrite = errors.New("write error")
 func (r *failingWriter) Write(_ []byte) (int, error) {
 	return 0, errWrite
 }
+
+func TestSetLocalAddr(t *testing.T) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatalf("failed to get network interfaces: %v", err)
+	}
+
+	var addrs []net.IP
+	for _, i := range interfaces {
+		interfaceAddrs, err := i.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range interfaceAddrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+				continue
+			}
+			addrs = append(addrs, ip)
+		}
+	}
+
+	for _, addrA := range addrs {
+		for _, addrB := range addrs {
+			t.Run(fmt.Sprintf("%s receives from %s", addrA.String(), addrB.String()), func(t *testing.T) {
+				var mu sync.Mutex
+				var remoteAddr net.UDPAddr
+				s := NewServer(nil, func(filename string, wt io.WriterTo) error {
+					_, err := wt.WriteTo(io.Discard)
+					if err != nil {
+						return err
+					}
+					mu.Lock()
+					defer mu.Unlock()
+					remoteAddr = wt.(IncomingTransfer).RemoteAddr()
+					return nil
+				})
+				s.SetTimeout(2 * time.Second)
+
+				conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: addrA, Port: 0})
+				if err != nil {
+					panic(err)
+				}
+
+				go s.Serve(conn)
+				defer s.Shutdown()
+
+				c, err := NewClient(conn.LocalAddr().String())
+				if err != nil {
+					t.Fatalf("creating client: %v", err)
+				}
+				c.SetLocalAddr(addrB.String())
+
+				wt, err := c.Send("testfile", "octet")
+				if err != nil {
+					return
+				}
+				_, _ = wt.ReadFrom(bytes.NewReader([]byte("test data for cross-interface")))
+
+				// Compare addrB to remoteAddr in thread-safe manner
+				mu.Lock()
+				defer mu.Unlock()
+				if remoteAddr.IP == nil {
+					t.Error("remote address was not captured from server")
+				} else if !remoteAddr.IP.Equal(addrB) {
+					t.Errorf("remote address mismatch: expected %s, got %s", addrB.String(), remoteAddr.IP.String())
+				}
+			})
+		}
+	}
+}

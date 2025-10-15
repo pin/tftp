@@ -85,13 +85,9 @@ type Client struct {
 
 // Send starts outgoing file transmission. It returns io.ReaderFrom or error.
 func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
-	var conn *net.UDPConn
-	var err error
-	if c.localAddr != nil {
-		conn, err = net.ListenUDP("udp", c.localAddr)
-		if err != nil {
-			return nil, err
-		}
+	conn, err := net.ListenUDP("udp", c.localAddr)
+	if err != nil {
+		return nil, err
 	}
 	s := &sender{
 		send:    make([]byte, datagramLength),
@@ -119,13 +115,9 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 
 // Receive starts incoming file transmission. It returns io.WriterTo or error.
 func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
-	var conn *net.UDPConn
-	var err error
-	if c.localAddr != nil {
-		conn, err = net.ListenUDP("udp", c.localAddr)
-		if err != nil {
-			return nil, err
-		}
+	conn, err := net.ListenUDP("udp", c.localAddr)
+	if err != nil {
+		return nil, err
 	}
 	if c.timeout == 0 {
 		c.timeout = defaultTimeout

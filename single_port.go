@@ -2,55 +2,79 @@ package tftp
 
 import (
 	"net"
+	"time"
 )
 
 func (s *Server) singlePortProcessRequests() error {
+	shuttingDown := false
 	for {
 		select {
 		case <-s.cancel.Done():
-			s.wg.Wait()
-			return nil
+			shuttingDown = true
 		default:
-			buf := make([]byte, s.maxBlockLen+4)
-			cnt, localAddr, srcAddr, maxSz, err := s.getPacket(buf)
-			if err != nil || cnt == 0 {
+		}
+
+		if shuttingDown {
+			// s.getPacket will wait for an incoming packet for a second, When nothing
+			// comes, it will exit with error which will complete the server shutdown.
+			s.conn.SetReadDeadline(time.Now().Add(time.Second))
+		}
+
+		buf := make([]byte, s.maxBlockLen+4)
+		cnt, localAddr, srcAddr, maxSz, err := s.getPacket(buf)
+		if err != nil {
+			if shuttingDown {
+				// We got error trying to read from connection while shutting down.
+				// Stop listening for incoming packets.
+				s.conn.Close()
+				// Wait for all transfers to finish, any outstanding transfer should abort trying to read
+				// from the closed connection.
+				s.wg.Wait()
+				return nil
+			}
+			if s.hook != nil {
+				s.hook.OnFailure(TransferStats{
+					SenderAnticipateEnabled: s.sendAEnable,
+				}, err)
+			}
+			continue
+		}
+		if cnt == 0 {
+			continue
+		}
+		s.mu.Lock()
+		if receiverChannel, ok := s.handlers[srcAddr.String()]; ok {
+			// Packet received for a transfer in progress.
+			s.mu.Unlock()
+			select {
+			case receiverChannel <- buf[:cnt]:
+			default:
+				// We don't want to block the main loop if a channel is full
+			}
+		} else {
+			// No existing transfer for given source address. Start a new one.
+			if shuttingDown {
+				s.mu.Unlock()
+				continue
+			}
+			lc := make(chan []byte, 1)
+			s.handlers[srcAddr.String()] = lc
+			s.mu.Unlock()
+			err := s.handlePacket(localAddr, srcAddr, buf, cnt, maxSz, lc)
+			if err != nil {
 				if s.hook != nil {
 					s.hook.OnFailure(TransferStats{
 						SenderAnticipateEnabled: s.sendAEnable,
 					}, err)
 				}
-				continue
-			}
-			s.mu.Lock()
-			if receiverChannel, ok := s.handlers[srcAddr.String()]; ok {
+				// Normally handlePacket starts an incoming or outgoing transfer,
+				// and creates a connection object that cleans up the entry in handlers map
+				// at the end of the transfer.
+				// But when handlePacket fails, it doesn't create transfer and connection,
+				// we still need to clean up the map entry.
+				s.mu.Lock()
+				delete(s.handlers, srcAddr.String())
 				s.mu.Unlock()
-				select {
-				case receiverChannel <- buf[:cnt]:
-				default:
-					// We don't want to block the main loop if a channel is full
-				}
-			} else {
-				lc := make(chan []byte, 1)
-				s.handlers[srcAddr.String()] = lc
-				s.mu.Unlock()
-				go func() {
-					err := s.handlePacket(localAddr, srcAddr, buf, cnt, maxSz, lc)
-					if err != nil {
-						if s.hook != nil {
-							s.hook.OnFailure(TransferStats{
-								SenderAnticipateEnabled: s.sendAEnable,
-							}, err)
-						}
-						// Normally handlePacket starts an incoming or outgoing transfer,
-						// and creates a connection object that cleans up the entry in handlers map
-						// at the end of the transfer.
-						// But when handlePacket fails, it doesn't create transfer and connection,
-						// we still need to clean up the map entry.
-						s.mu.Lock()
-						delete(s.handlers, srcAddr.String())
-						s.mu.Unlock()
-					}
-				}()
 			}
 		}
 	}

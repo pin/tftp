@@ -310,13 +310,15 @@ func (s *Server) processRequest() error {
 // Shutdown blocks until all outstanding requests are processed or timed out.
 // Calling Shutdown from the handler or hook might cause deadlock.
 func (s *Server) Shutdown() {
-	s.mu.Lock()
-	// Connection could not exist if Serve or
-	// ListenAndServe was never called.
-	if s.conn != nil {
-		s.conn.Close()
+	if !s.singlePort {
+		s.mu.Lock()
+		// Connection could not exist if Serve or
+		// ListenAndServe was never called.
+		if s.conn != nil {
+			s.conn.Close()
+		}
+		s.mu.Unlock()
 	}
-	s.mu.Unlock()
 	s.cancelFn()
 	if !s.singlePort {
 		s.wg.Wait()

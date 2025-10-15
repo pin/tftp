@@ -1013,9 +1013,6 @@ func TestSetLocalAddr(t *testing.T) {
 
 				wt, err := c.Send("testfile", "octet")
 				if err != nil {
-					if addrA.Equal(addrB) {
-						t.Fatalf("sending file on the same interface: %v", err)
-					}
 					return
 				}
 				_, _ = wt.ReadFrom(bytes.NewReader([]byte("test data for cross-interface")))

@@ -208,7 +208,7 @@ func (s *Server) Serve(conn net.PacketConn) error {
 	// but necessary at this point.
 	addr := net.ParseIP(host)
 	if addr == nil {
-		return fmt.Errorf("Failed to determine IP class of listening address")
+		return fmt.Errorf("failed to determine IP class of listening address")
 	}
 
 	if conn, ok := s.conn.(*net.UDPConn); ok {
@@ -356,11 +356,7 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 	case pWRQ:
 		filename, mode, opts, err := unpackRQ(p)
 		if err != nil {
-			return fmt.Errorf("unpack WRQ: %v", err)
-		}
-		//fmt.Printf("got WRQ (filename=%s, mode=%s, opts=%v)\n", filename, mode, opts)
-		if err != nil {
-			return fmt.Errorf("open transmission: %v", err)
+			return fmt.Errorf("unpack WRQ while starting transfer: %v", err)
 		}
 		wt := &receiver{
 			send:        make([]byte, datagramLength),

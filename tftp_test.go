@@ -310,7 +310,7 @@ func TestDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send error: %v", err)
 	}
-	sender, err = c.Send(filename, mode)
+	_, err = c.Send(filename, mode)
 	if err == nil {
 		t.Fatalf("file already exists")
 	}
@@ -713,7 +713,6 @@ func (r *slowReader) Read(p []byte) (n int, err error) {
 }
 
 type slowWriter struct {
-	r     io.Reader
 	n     int64
 	delay time.Duration
 }
@@ -785,13 +784,21 @@ func TestRequestPacketInfo(t *testing.T) {
 	}
 
 	// Start server
+	errChan := make(chan error, 1)
 	go func() {
 		err := s.Serve(conn)
 		if err != nil {
-			t.Fatalf("serve: %v", err)
+			errChan <- fmt.Errorf("serve: %w", err)
 		}
 	}()
-	defer s.Shutdown()
+	defer func() {
+		s.Shutdown()
+		select {
+		case err := <-errChan:
+			t.Errorf("server error: %v", err)
+		default:
+		}
+	}()
 
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
@@ -906,13 +913,21 @@ func TestReadWriteErrors(t *testing.T) {
 	}
 
 	// Start server
+	errChan := make(chan error, 1)
 	go func() {
 		err := s.Serve(conn)
 		if err != nil {
-			t.Fatalf("running serve: %v", err)
+			errChan <- fmt.Errorf("running serve: %w", err)
 		}
 	}()
-	defer s.Shutdown()
+	defer func() {
+		s.Shutdown()
+		select {
+		case err := <-errChan:
+			t.Errorf("server error: %v", err)
+		default:
+		}
+	}()
 
 	// Create client
 	c, err := NewClient(net.JoinHostPort(localhost, port))
@@ -1058,7 +1073,7 @@ func testShutdownDuringTransfer(t *testing.T, singlePort bool) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Error("client did not finish in time")
-  }
+	}
 }
 
 func TestSetLocalAddr(t *testing.T) {

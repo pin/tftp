@@ -15,6 +15,20 @@ func TestAnticipateWindow900(t *testing.T) {
 	}
 }
 
+// TestAnticipateHookSuccess verifies that OnSuccess hook is called on transfer completion when SetAnticipate is used
+func TestAnticipateHookSuccess(t *testing.T) {
+	s, c := makeTestServerAnticipateWindow()
+	th := newTestHook()
+	s.SetHook(th)
+	testSendReceive(t, c, 154242)
+	s.Shutdown()
+	th.Lock()
+	defer th.Unlock()
+	if th.transfersCompleted != 2 {
+		t.Errorf("unexpected completed transfers count: %d", th.transfersCompleted)
+	}
+}
+
 // derived from makeTestServer
 func makeTestServerAnticipateWindow() (*Server, *Client) {
 	b := &testBackend{}

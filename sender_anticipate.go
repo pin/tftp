@@ -97,6 +97,9 @@ func readFromAnticipate(s *sender, r io.Reader) (n int64, err error) {
 		}
 		if kfillPartial {
 			s.conn.close()
+			if s.hook != nil {
+				s.hook.OnSuccess(s.buildTransferStats())
+			}
 			return n, nil
 		}
 		s.block += uint16(knum)

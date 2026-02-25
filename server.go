@@ -22,6 +22,7 @@ func NewServer(readHandler func(filename string, rf io.ReaderFrom) error,
 		mu:                &sync.Mutex{},
 		timeout:           defaultTimeout,
 		retries:           defaultRetries,
+		smartBlock:        true,
 		packetReadTimeout: 100 * time.Millisecond,
 		readHandler:       readHandler,
 		writeHandler:      writeHandler,
@@ -56,6 +57,7 @@ type Server struct {
 	timeout      time.Duration
 	retries      int
 	maxBlockLen  int
+	smartBlock   bool
 	sendAEnable  bool /* senderAnticipate enable by server */
 	sendAWinSz   uint
 	// Single port fields
@@ -154,6 +156,19 @@ func (s *Server) SetBlockSize(i int) {
 	if i > 512 && i < 65465 {
 		s.maxBlockLen = i
 	}
+}
+
+// SetBlockSizeNegotiation controls MTU-based blksize negotiation.
+//
+// When enabled (default), the server clamps negotiated block size to the
+// interface MTU (minus protocol overhead).
+//
+// When disabled, the server honors client-requested blksize (still bounded
+// by RFC limits and optional SetBlockSize cap).
+func (s *Server) SetBlockSizeNegotiation(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.smartBlock = enabled
 }
 
 // SetRetries sets maximum number of attempts server made to transmit a
@@ -334,6 +349,10 @@ func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer 
 	// so fallback to the OS default.
 	if localAddr.Equal(net.IPv4bcast) {
 		localAddr = net.IPv4zero
+	}
+	if !s.smartBlock {
+		// Disable MTU-based clamping.
+		maxBlockLen = 65464
 	}
 
 	// handlePacket is always called with maxBlockLen = blockLength (above, in processRequest).

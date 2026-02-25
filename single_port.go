@@ -23,14 +23,22 @@ func (s *Server) singlePortProcessRequests() error {
 		buf := make([]byte, s.maxBlockLen+4)
 		cnt, localAddr, srcAddr, maxSz, err := s.getPacket(buf)
 		if err != nil {
-			if shuttingDown {
-				// We got error trying to read from connection while shutting down.
-				// Stop listening for incoming packets.
-				s.conn.Close()
-				// Wait for all transfers to finish, any outstanding transfer should abort trying to read
-				// from the closed connection.
-				s.wg.Wait()
-				return nil
+			if shuttingDown || s.cancel.Err() != nil {
+				s.mu.Lock()
+				activeTransfers := len(s.handlers) > 0
+				s.mu.Unlock()
+				if !activeTransfers {
+					// We got error trying to read from connection while shutting down.
+					// Stop listening for incoming packets.
+					s.conn.Close()
+					// Wait for all transfers to finish, any outstanding transfer should abort trying to read
+					// from the closed connection.
+					s.wg.Wait()
+					return nil
+				}
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					continue
+				}
 			}
 			if s.hook != nil {
 				s.hook.OnFailure(TransferStats{

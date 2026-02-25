@@ -190,6 +190,28 @@ or, for no backoff
 	s.SetBackoff(func (int) time.Duration { return 0 })
 ```
 
+Single-port mode
+----------------
+
+By default, each transfer uses a separate server UDP port (standard TFTP
+behavior). If your environment requires the server to stay on one port only
+(typically UDP/69), enable single-port mode:
+
+```go
+	s := tftp.NewServer(readHandler, writeHandler)
+	s.EnableSinglePort()
+	err := s.ListenAndServe(":69")
+```
+
+In this mode, all transfer packets are handled on the listening port, and the
+server does not switch to random TIDs.
+
+Notes:
+ * `EnableSinglePort` is experimental.
+ * It can reduce performance compared to the default mode.
+ * It is useful in networks where opening dynamic UDP ports is not possible
+   (for example, strict firewall/NAT setups).
+
 Distribution packages
 ---------------------
 * Debian: [golang-github-pin-tftp](https://packages.debian.org/source/sid/golang-github-pin-tftp)

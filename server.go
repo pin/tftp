@@ -310,19 +310,26 @@ func (s *Server) processRequest() error {
 // Shutdown blocks until all outstanding requests are processed or timed out.
 // Calling Shutdown from the handler or hook might cause deadlock.
 func (s *Server) Shutdown() {
-	if !s.singlePort {
+	if s.singlePort {
+		s.cancelFn()
 		s.mu.Lock()
-		// Connection could not exist if Serve or
-		// ListenAndServe was never called.
-		if s.conn != nil {
-			s.conn.Close()
-		}
+		conn := s.conn
 		s.mu.Unlock()
+		if conn != nil {
+			// Wake the single-port read loop so it can observe cancellation.
+			_ = conn.SetReadDeadline(time.Now())
+		}
+		return
 	}
+	s.mu.Lock()
+	// Connection could not exist if Serve or
+	// ListenAndServe was never called.
+	if s.conn != nil {
+		s.conn.Close()
+	}
+	s.mu.Unlock()
 	s.cancelFn()
-	if !s.singlePort {
-		s.wg.Wait()
-	}
+	s.wg.Wait()
 }
 
 func (s *Server) handlePacket(localAddr net.IP, remoteAddr *net.UDPAddr, buffer []byte, n, maxBlockLen int, listener chan []byte) error {

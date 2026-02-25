@@ -10,13 +10,17 @@ import (
 )
 
 func TestServerSendTimeout(t *testing.T) {
-	s, c := makeTestServer(false)
-	serverTimeoutSendTest(s, c, t)
+	forModes(t, func(t *testing.T, mode transferMode) {
+		s, c := newFixture(t, mode)
+		serverTimeoutSendTest(s, c, t)
+	})
 }
 
 func TestServerReceiveTimeout(t *testing.T) {
-	s, c := makeTestServer(false)
-	serverReceiveTimeoutTest(s, c, t)
+	forModes(t, func(t *testing.T, mode transferMode) {
+		s, c := newFixture(t, mode)
+		serverReceiveTimeoutTest(s, c, t)
+	})
 }
 
 func TestClientReceiveTimeout(t *testing.T) {

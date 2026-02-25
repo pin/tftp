@@ -11,9 +11,32 @@ import (
 )
 
 func TestZeroLength(t *testing.T) {
-	s, c := makeTestServer(false)
-	defer s.Shutdown()
-	testSendReceive(t, c, 0)
+	forModes(t, func(t *testing.T, mode transferMode) {
+		s, c := newFixture(t, mode)
+		defer s.Shutdown()
+		testSendReceive(t, c, 0)
+	})
+}
+
+func TestSendReceiveRange(t *testing.T) {
+	forModes(t, func(t *testing.T, mode transferMode) {
+		s, c := newFixture(t, mode)
+		defer s.Shutdown()
+		for i := 600; i < 1000; i++ {
+			testSendReceive(t, c, 5000+int64(i))
+		}
+	})
+}
+
+func TestSendReceiveWithBlockSizeRange(t *testing.T) {
+	forModes(t, func(t *testing.T, mode transferMode) {
+		s, c := newFixture(t, mode)
+		defer s.Shutdown()
+		for i := 600; i < 1000; i++ {
+			c.SetBlockSize(i)
+			testSendReceive(t, c, 5000+int64(i))
+		}
+	})
 }
 
 func Test1000(t *testing.T) {

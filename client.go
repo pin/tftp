@@ -89,6 +89,12 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 	if err != nil {
 		return nil, err
 	}
+	keepConn := false
+	defer func() {
+		if !keepConn {
+			conn.Close()
+		}
+	}()
 	s := &sender{
 		send:    make([]byte, datagramLength),
 		receive: make([]byte, datagramLength),
@@ -110,6 +116,7 @@ func (c Client) Send(filename string, mode string) (io.ReaderFrom, error) {
 	}
 	s.addr = addr
 	s.opts = nil
+	keepConn = true
 	return s, nil
 }
 
@@ -119,6 +126,12 @@ func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 	if err != nil {
 		return nil, err
 	}
+	keepConn := false
+	defer func() {
+		if !keepConn {
+			conn.Close()
+		}
+	}()
 	if c.timeout == 0 {
 		c.timeout = defaultTimeout
 	}
@@ -152,5 +165,6 @@ func (c Client) Receive(filename string, mode string) (io.WriterTo, error) {
 	}
 	r.l = l
 	r.addr = addr
+	keepConn = true
 	return r, nil
 }

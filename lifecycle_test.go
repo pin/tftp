@@ -24,7 +24,7 @@ func TestServerReceiveTimeout(t *testing.T) {
 }
 
 func TestClientReceiveTimeout(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	c.SetTimeout(time.Second)
 	c.SetRetries(2)
 	s.mu.Lock()
@@ -57,7 +57,7 @@ func TestClientReceiveTimeout(t *testing.T) {
 }
 
 func TestClientSendTimeout(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	c.SetTimeout(time.Second)
 	c.SetRetries(2)
 	s.mu.Lock()
@@ -143,7 +143,7 @@ func testShutdownDuringTransfer(t *testing.T, singlePort bool) {
 		errChan <- s.Serve(conn)
 	}()
 
-	c, err := NewClient(localSystem(conn))
+	c, err := NewClient(localSystem(t, conn))
 	if err != nil {
 		t.Fatal(err)
 	}

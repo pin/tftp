@@ -11,7 +11,7 @@ import (
 )
 
 func TestDuplicate(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	defer s.Shutdown()
 	filename := "test-duplicate"
 	mode := "octet"
@@ -33,7 +33,7 @@ func TestDuplicate(t *testing.T) {
 }
 
 func TestNotFound(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	defer s.Shutdown()
 	filename := "test-not-exists"
 	mode := "octet"
@@ -49,14 +49,14 @@ func TestNoHandlers(t *testing.T) {
 
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
-		panic(err)
+		t.Fatalf("listen udp: %v", err)
 	}
 
 	go s.Serve(conn)
 
-	c, err := NewClient(localSystem(conn))
+	c, err := NewClient(localSystem(t, conn))
 	if err != nil {
-		panic(err)
+		t.Fatalf("new client: %v", err)
 	}
 
 	_, err = c.Send("test", "octet")
@@ -97,11 +97,6 @@ func TestReadWriteErrors(t *testing.T) {
 		t.Fatalf("listen UDP: %v", err)
 	}
 
-	_, port, err := net.SplitHostPort(conn.LocalAddr().String())
-	if err != nil {
-		t.Fatalf("parsing server port: %v", err)
-	}
-
 	// Start server
 	errChan := make(chan error, 1)
 	go func() {
@@ -120,7 +115,7 @@ func TestReadWriteErrors(t *testing.T) {
 	}()
 
 	// Create client
-	c, err := NewClient(net.JoinHostPort(localhost, port))
+	c, err := NewClient(localSystem(t, conn))
 	if err != nil {
 		t.Fatalf("creating new client: %v", err)
 	}

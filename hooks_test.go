@@ -9,7 +9,7 @@ import (
 )
 
 func TestHookSuccess(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	th := newTestHook()
 	s.SetHook(th)
 	c.SetBlockSize(1810)
@@ -36,7 +36,7 @@ func TestHookSuccess(t *testing.T) {
 }
 
 func TestHookFailure(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	th := newTestHook()
 	s.SetHook(th)
 	filename := "test-not-exists"

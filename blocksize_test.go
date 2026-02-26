@@ -12,7 +12,7 @@ import (
 )
 
 func Test900(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	defer s.Shutdown()
 	for i := 600; i < 4000; i++ {
 		c.SetBlockSize(i)
@@ -22,14 +22,14 @@ func Test900(t *testing.T) {
 }
 
 func Test1810(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	defer s.Shutdown()
 	c.SetBlockSize(1810)
 	testSendReceive(t, c, 9000+1810)
 }
 
 func TestNearBlockLength(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	defer s.Shutdown()
 	for i := 450; i < 520; i++ {
 		testSendReceive(t, c, int64(i))
@@ -179,7 +179,7 @@ func BenchmarkBlockSizeNegotiation(b *testing.B) {
 		go func() { _ = s.Serve(conn) }()
 		b.Cleanup(s.Shutdown)
 
-		c, err := NewClient(localSystem(conn))
+		c, err := NewClient(localSystem(b, conn))
 		if err != nil {
 			b.Fatalf("new client: %v", err)
 		}

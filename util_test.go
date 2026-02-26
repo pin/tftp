@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -36,26 +35,32 @@ func newFixture(t *testing.T, mode transferMode) (*Server, *Client) {
 	t.Helper()
 	switch mode {
 	case modeRegular:
-		return makeTestServer(false)
+		return makeTestServer(t, false)
 	case modeSinglePort:
-		return makeTestServer(true)
+		return makeTestServer(t, true)
 	default:
 		t.Fatalf("unknown transfer mode: %q", mode)
 		return nil, nil
 	}
 }
 
-var localhost = determineLocalhost()
+var (
+	localhostOnce sync.Once
+	localhostAddr string
+	localhostErr  error
+)
 
-func determineLocalhost() string {
+func determineLocalhost() (string, error) {
 	l, err := net.ListenTCP("tcp", nil)
 	if err != nil {
-		panic(fmt.Sprintf("ListenTCP error: %s", err))
+		return "", fmt.Errorf("listen tcp: %w", err)
 	}
-	_, lport, _ := net.SplitHostPort(l.Addr().String())
+	_, lport, err := net.SplitHostPort(l.Addr().String())
+	if err != nil {
+		l.Close()
+		return "", fmt.Errorf("split host port: %w", err)
+	}
 	defer l.Close()
-
-	lo := make(chan string)
 
 	go func() {
 		for {
@@ -67,26 +72,39 @@ func determineLocalhost() string {
 		}
 	}()
 
-	go func() {
-		port, _ := strconv.Atoi(lport)
-		for _, af := range []string{"tcp6", "tcp4"} {
-			conn, err := net.DialTCP(af, &net.TCPAddr{}, &net.TCPAddr{Port: port})
-			if err == nil {
-				conn.Close()
-				host, _, _ := net.SplitHostPort(conn.LocalAddr().String())
-				lo <- host
-				return
-			}
+	for _, af := range []string{"tcp6", "tcp4"} {
+		conn, err := net.Dial(af, net.JoinHostPort("", lport))
+		if err != nil {
+			continue
 		}
-		panic("could not determine address family")
-	}()
+		host, _, splitErr := net.SplitHostPort(conn.LocalAddr().String())
+		conn.Close()
+		if splitErr == nil {
+			return host, nil
+		}
+	}
 
-	return <-lo
+	return "", fmt.Errorf("could not determine localhost address family")
 }
 
-func localSystem(c *net.UDPConn) string {
-	_, port, _ := net.SplitHostPort(c.LocalAddr().String())
-	return net.JoinHostPort(localhost, port)
+func resolveLocalhost() (string, error) {
+	localhostOnce.Do(func() {
+		localhostAddr, localhostErr = determineLocalhost()
+	})
+	return localhostAddr, localhostErr
+}
+
+func localSystem(tb testing.TB, c *net.UDPConn) string {
+	tb.Helper()
+	host, err := resolveLocalhost()
+	if err != nil {
+		tb.Fatalf("resolve localhost: %v", err)
+	}
+	_, port, err := net.SplitHostPort(c.LocalAddr().String())
+	if err != nil {
+		tb.Fatalf("split listener address: %v", err)
+	}
+	return net.JoinHostPort(host, port)
 }
 
 type testHook struct {
@@ -161,7 +179,8 @@ type testBackend struct {
 	mu sync.Mutex
 }
 
-func makeTestServer(singlePort bool) (*Server, *Client) {
+func makeTestServer(t *testing.T, singlePort bool) (*Server, *Client) {
+	t.Helper()
 	b := &testBackend{}
 	b.m = make(map[string][]byte)
 
@@ -175,15 +194,15 @@ func makeTestServer(singlePort bool) (*Server, *Client) {
 
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
-		panic(err)
+		t.Fatalf("listen udp: %v", err)
 	}
 
 	go s.Serve(conn)
 
 	// Create client for that server
-	c, err := NewClient(localSystem(conn))
+	c, err := NewClient(localSystem(t, conn))
 	if err != nil {
-		panic(err)
+		t.Fatalf("new client: %v", err)
 	}
 
 	return s, c

@@ -40,7 +40,7 @@ func TestSendReceiveWithBlockSizeRange(t *testing.T) {
 }
 
 func Test1000(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	defer s.Shutdown()
 	for i := int64(0); i < 5000; i++ {
 		filename := fmt.Sprintf("length-%d-bytes-%d", i, time.Now().UnixNano())
@@ -60,7 +60,7 @@ func Test1000(t *testing.T) {
 }
 
 func TestBlockWrapsAround(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	defer s.Shutdown()
 	n := 65535 * 512
 	for i := n - 2; i < n+2; i++ {
@@ -69,7 +69,7 @@ func TestBlockWrapsAround(t *testing.T) {
 }
 
 func TestRandomLength(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	defer s.Shutdown()
 	r := rand.New(rand.NewSource(42))
 	for i := 0; i < 100; i++ {
@@ -78,13 +78,13 @@ func TestRandomLength(t *testing.T) {
 }
 
 func TestBigFile(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	defer s.Shutdown()
 	testSendReceive(t, c, 3*1000*1000)
 }
 
 func TestByOneByte(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	defer s.Shutdown()
 	filename := "test-by-one-byte"
 	mode := "octet"

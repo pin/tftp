@@ -10,7 +10,7 @@ import (
 )
 
 func TestTSize(t *testing.T) {
-	s, c := makeTestServer(false)
+	s, c := makeTestServer(t, false)
 	defer s.Shutdown()
 	c.RequestTSize(true)
 	testSendReceive(t, c, 640)
@@ -39,9 +39,15 @@ func TestSendTsizeFromSeek(t *testing.T) {
 	go s.Serve(conn)
 	defer s.Shutdown()
 
-	c, _ := NewClient(localSystem(conn))
+	c, err := NewClient(localSystem(t, conn))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
 	c.RequestTSize(true)
-	r, _ := c.Receive("f", "octet")
+	r, err := c.Receive("f", "octet")
+	if err != nil {
+		t.Fatalf("receive: %v", err)
+	}
 	var size int64
 	if it, ok := r.(IncomingTransfer); ok {
 		if n, ok := it.Size(); ok {
@@ -57,7 +63,10 @@ func TestSendTsizeFromSeek(t *testing.T) {
 	r.WriteTo(io.Discard)
 
 	c.RequestTSize(false)
-	r, _ = c.Receive("f", "octet")
+	r, err = c.Receive("f", "octet")
+	if err != nil {
+		t.Fatalf("receive without tsize: %v", err)
+	}
 	if it, ok := r.(IncomingTransfer); ok {
 		_, ok := it.Size()
 		if ok {

@@ -7,7 +7,7 @@ import (
 
 // derived from Test900
 func TestAnticipateWindow900(t *testing.T) {
-	s, c := makeTestServerAnticipateWindow()
+	s, c := makeTestServerAnticipateWindow(t)
 	defer s.Shutdown()
 	for i := 600; i < 4000; i++ {
 		c.blksize = i
@@ -17,7 +17,7 @@ func TestAnticipateWindow900(t *testing.T) {
 
 // TestAnticipateHookSuccess verifies that OnSuccess hook is called on transfer completion when SetAnticipate is used
 func TestAnticipateHookSuccess(t *testing.T) {
-	s, c := makeTestServerAnticipateWindow()
+	s, c := makeTestServerAnticipateWindow(t)
 	th := newTestHook()
 	s.SetHook(th)
 	testSendReceive(t, c, 154242)
@@ -30,7 +30,8 @@ func TestAnticipateHookSuccess(t *testing.T) {
 }
 
 // derived from makeTestServer
-func makeTestServerAnticipateWindow() (*Server, *Client) {
+func makeTestServerAnticipateWindow(t *testing.T) (*Server, *Client) {
+	t.Helper()
 	b := &testBackend{}
 	b.m = make(map[string][]byte)
 
@@ -40,15 +41,15 @@ func makeTestServerAnticipateWindow() (*Server, *Client) {
 
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
-		panic(err)
+		t.Fatalf("listen udp: %v", err)
 	}
 
 	go s.Serve(conn)
 
 	// Create client for that server
-	c, err := NewClient(localSystem(conn))
+	c, err := NewClient(localSystem(t, conn))
 	if err != nil {
-		panic(err)
+		t.Fatalf("new client: %v", err)
 	}
 
 	return s, c

@@ -24,68 +24,72 @@ func TestServerReceiveTimeout(t *testing.T) {
 }
 
 func TestClientReceiveTimeout(t *testing.T) {
-	s, c := makeTestServer(t, false)
-	c.SetTimeout(time.Second)
-	c.SetRetries(2)
-	s.mu.Lock()
-	s.readHandler = func(filename string, rf io.ReaderFrom) error {
-		r := &slowReader{
-			r:     io.LimitReader(newRandReader(rand.NewSource(42)), 80000),
-			n:     3,
-			delay: 8 * time.Second,
+	forModes(t, func(t *testing.T, mode transferMode) {
+		s, c := newFixture(t, mode)
+		c.SetTimeout(time.Second)
+		c.SetRetries(2)
+		s.mu.Lock()
+		s.readHandler = func(filename string, rf io.ReaderFrom) error {
+			r := &slowReader{
+				r:     io.LimitReader(newRandReader(rand.NewSource(42)), 80000),
+				n:     3,
+				delay: 8 * time.Second,
+			}
+			_, err := rf.ReadFrom(r)
+			return err
 		}
-		_, err := rf.ReadFrom(r)
-		return err
-	}
-	s.mu.Unlock()
-	defer s.Shutdown()
-	filename := "test-client-receive-timeout"
-	mode := "octet"
-	readTransfer, err := c.Receive(filename, mode)
-	if err != nil {
-		t.Fatalf("requesting read %s: %v", filename, err)
-	}
-	buf := &bytes.Buffer{}
-	_, err = readTransfer.WriteTo(buf)
-	netErr, ok := err.(net.Error)
-	if !ok {
-		t.Fatalf("network error expected: %T", err)
-	}
-	if !netErr.Timeout() {
-		t.Fatalf("timout is expected: %v", err)
-	}
+		s.mu.Unlock()
+		defer s.Shutdown()
+		filename := "test-client-receive-timeout"
+		xferMode := "octet"
+		readTransfer, err := c.Receive(filename, xferMode)
+		if err != nil {
+			t.Fatalf("requesting read %s: %v", filename, err)
+		}
+		buf := &bytes.Buffer{}
+		_, err = readTransfer.WriteTo(buf)
+		netErr, ok := err.(net.Error)
+		if !ok {
+			t.Fatalf("network error expected: %T", err)
+		}
+		if !netErr.Timeout() {
+			t.Fatalf("timout is expected: %v", err)
+		}
+	})
 }
 
 func TestClientSendTimeout(t *testing.T) {
-	s, c := makeTestServer(t, false)
-	c.SetTimeout(time.Second)
-	c.SetRetries(2)
-	s.mu.Lock()
-	s.writeHandler = func(filename string, wt io.WriterTo) error {
-		w := &slowWriter{
-			n:     3,
-			delay: 8 * time.Second,
+	forModes(t, func(t *testing.T, mode transferMode) {
+		s, c := newFixture(t, mode)
+		c.SetTimeout(time.Second)
+		c.SetRetries(2)
+		s.mu.Lock()
+		s.writeHandler = func(filename string, wt io.WriterTo) error {
+			w := &slowWriter{
+				n:     3,
+				delay: 8 * time.Second,
+			}
+			_, err := wt.WriteTo(w)
+			return err
 		}
-		_, err := wt.WriteTo(w)
-		return err
-	}
-	s.mu.Unlock()
-	defer s.Shutdown()
-	filename := "test-client-send-timeout"
-	mode := "octet"
-	writeTransfer, err := c.Send(filename, mode)
-	if err != nil {
-		t.Fatalf("requesting write %s: %v", filename, err)
-	}
-	r := io.LimitReader(newRandReader(rand.NewSource(42)), 80000)
-	_, err = writeTransfer.ReadFrom(r)
-	netErr, ok := err.(net.Error)
-	if !ok {
-		t.Fatalf("network error expected: %T", err)
-	}
-	if !netErr.Timeout() {
-		t.Fatalf("timout is expected: %v", err)
-	}
+		s.mu.Unlock()
+		defer s.Shutdown()
+		filename := "test-client-send-timeout"
+		xferMode := "octet"
+		writeTransfer, err := c.Send(filename, xferMode)
+		if err != nil {
+			t.Fatalf("requesting write %s: %v", filename, err)
+		}
+		r := io.LimitReader(newRandReader(rand.NewSource(42)), 80000)
+		_, err = writeTransfer.ReadFrom(r)
+		netErr, ok := err.(net.Error)
+		if !ok {
+			t.Fatalf("network error expected: %T", err)
+		}
+		if !netErr.Timeout() {
+			t.Fatalf("timout is expected: %v", err)
+		}
+	})
 }
 
 // countingWriter signals through a channel when a certain number of bytes have been written
@@ -110,25 +114,19 @@ func (w *countingWriter) Write(p []byte) (n int, err error) {
 // TestShutdownDuringTransfer starts a transfer, then shuts down the server mid-transfer.
 // Checks that neither server nor client hang and server shuts down cleanly.
 func TestShutdownDuringTransfer(t *testing.T) {
-	for _, singlePort := range []bool{false, true} {
-		name := "regular"
-		if singlePort {
-			name = "single_port"
-		}
-		t.Run(name, func(t *testing.T) {
-			testShutdownDuringTransfer(t, singlePort)
-		})
-	}
+	forModes(t, func(t *testing.T, mode transferMode) {
+		testShutdownDuringTransfer(t, mode)
+	})
 }
 
-func testShutdownDuringTransfer(t *testing.T, singlePort bool) {
+func testShutdownDuringTransfer(t *testing.T, mode transferMode) {
 	s := NewServer(func(_ string, rf io.ReaderFrom) error {
 		// Simulate a slow reader: send 1MB, but slowly
 		_, err := rf.ReadFrom(&slowReader{r: bytes.NewReader(make([]byte, 1<<23)), n: 1 << 20, delay: 10 * time.Millisecond})
 		return err
 	}, nil)
 
-	if singlePort {
+	if mode == modeSinglePort {
 		s.EnableSinglePort()
 	}
 

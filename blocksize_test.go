@@ -11,6 +11,42 @@ import (
 	"time"
 )
 
+func Test900(t *testing.T) {
+	forModes(t, func(t *testing.T, mode transferMode) {
+		s, c := newFixture(t, mode)
+		defer s.Shutdown()
+		for i := 600; i < 4000; i++ {
+			c.SetBlockSize(i)
+			// In single-port mode the server read loop continuously reads maxBlockLen,
+			// so mutating block size at runtime races with Serve under -race.
+			// Keep runtime server mutation only in regular mode.
+			if mode == modeRegular {
+				s.SetBlockSize(4600 - i)
+			}
+			testSendReceive(t, c, 9000+int64(i))
+		}
+	})
+}
+
+func Test1810(t *testing.T) {
+	forModes(t, func(t *testing.T, mode transferMode) {
+		s, c := newFixture(t, mode)
+		defer s.Shutdown()
+		c.SetBlockSize(1810)
+		testSendReceive(t, c, 9000+1810)
+	})
+}
+
+func TestNearBlockLength(t *testing.T) {
+	forModes(t, func(t *testing.T, mode transferMode) {
+		s, c := newFixture(t, mode)
+		defer s.Shutdown()
+		for i := 450; i < 520; i++ {
+			testSendReceive(t, c, int64(i))
+		}
+	})
+}
+
 func TestBlockSizeNegotiation_ClampsByPathLimit(t *testing.T) {
 	got := negotiateBlockSizeForTest(t, 65432, 1472, true)
 	if got != "1472" {
@@ -154,7 +190,7 @@ func BenchmarkBlockSizeNegotiation(b *testing.B) {
 		go func() { _ = s.Serve(conn) }()
 		b.Cleanup(s.Shutdown)
 
-		c, err := NewClient(localSystem(conn))
+		c, err := NewClient(localSystem(b, conn))
 		if err != nil {
 			b.Fatalf("new client: %v", err)
 		}

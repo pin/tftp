@@ -40,6 +40,9 @@ type chanConnection struct {
 	channel       chan []byte
 	srcAddr, addr *net.UDPAddr
 	timeout       time.Duration
+	// deadline is the absolute time at which readFrom stops waiting. It mirrors
+	// the read deadline connConnection sets on its socket.
+	deadline time.Time
 }
 
 func (c *chanConnection) sendTo(data []byte, addr *net.UDPAddr) error {
@@ -64,17 +67,30 @@ func (c *chanConnection) sendTo(data []byte, addr *net.UDPAddr) error {
 }
 
 func (c *chanConnection) readFrom(buffer []byte) (int, *net.UDPAddr, error) {
+	// Wait at most until the absolute deadline instead of restarting a full
+	// timeout on every call. Restarting the timeout lets a packet that arrives
+	// on every read (for example a client that keeps re-ACKing its last block
+	// faster than the timeout) postpone the deadline indefinitely and starve
+	// the retransmission logic in sendWithRetry.
+	remaining := c.timeout
+	if !c.deadline.IsZero() {
+		remaining = time.Until(c.deadline)
+	}
+
 	select {
 	case data := <-c.channel:
 		copy(buffer, data)
 		return len(data), c.addr, nil
-	case <-time.After(c.timeout):
+	case <-time.After(remaining):
 		return 0, nil, makeError(c.addr.String())
 	}
 }
 
 func (c *chanConnection) setDeadline(deadline time.Duration) error {
 	c.timeout = deadline
+	// Record the absolute deadline, like connConnection does on its socket, so
+	// that readFrom cannot extend it.
+	c.deadline = time.Now().Add(deadline)
 	return nil
 }
 
